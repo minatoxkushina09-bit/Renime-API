@@ -6,8 +6,8 @@
 
 const PROVIDERS = {
   animesalt: {
-    id: 'animesalt',
-    name: 'AnimeSalt',
+    id: 'Animesky',
+    name: 'Animesky',
     baseUrl: 'https://animesky.app/',
     aliases: ['animesalt', 'salt', 'as'],
   },
@@ -19,7 +19,7 @@ const PROVIDERS = {
   },
 };
 
-const DEFAULT_PROVIDER = 'animesalt';
+const DEFAULT_PROVIDER = 'Animesky';
 
 /**
  * Resolve a provider key (or alias) to the full provider config.
