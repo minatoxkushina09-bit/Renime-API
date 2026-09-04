@@ -8,13 +8,13 @@ const PROVIDERS = {
   animesalt: {
     id: 'animesalt',
     name: 'AnimeSalt',
-    baseUrl: 'animesalt.cx',
+    baseUrl: 'https://animesky.app/',
     aliases: ['animesalt', 'salt', 'as'],
   },
   watchanimeworld: {
-    id: 'watchanimeworld',
-    name: 'WatchAnimeWorld',
-    baseUrl: 'https://watchanimeworld',
+    id: 'animelok',
+    name: 'animelok',
+    baseUrl: 'https://animelok.live/',
     aliases: ['watchanimeworld', 'waw', 'animeworld', 'awi'],
   },
 };
