@@ -1,131 +1,37 @@
-const { BaseExtractor } = require('./base.extractor');
-const { WatchAnimeWorldBase } = require('../base/base');
-const { httpClient } = require('../utils/http');
-const { getRandomUserAgent } = require('../config/user-agents');
+/**
+ * Site Extractor
+ * Shared base extractor for anime providers
+ */
 
-class SiteExtractor extends BaseExtractor {
-  constructor(provider) {
-    super();
-    this.base = new WatchAnimeWorldBase(provider);
-  }
+const axios = require('axios');
+const cheerio = require('cheerio');
 
-  async fetch(path = '') {
-    const url = this.base.buildUrl(path);
+class SiteExtractor {
+  constructor(provider = 'animesky') {
+    this.providers = {
+      animesky: {
+        providerId: 'animesky',
+        baseUrl: 'https://animesky.app'
+      },
 
-    const response = await httpClient.get(url, {
+      animelok: {
+        providerId: 'animelok',
+        baseUrl: 'https://animelok.live'
+      }
+    };
+
+    const normalizedProvider = String(provider || 'animesky')
+      .toLowerCase()
+      .trim();
+
+    this.base =
+      this.providers[normalizedProvider] ||
+      this.providers.animesky;
+
+    this.client = axios.create({
+      baseURL: this.base.baseUrl,
+      timeout: 15000,
       headers: {
-        'User-Agent': getRandomUserAgent(),
-
-        'Accept':
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-
-        'Accept-Language': 'en-US,en;q=0.9',
-
-        'Referer': this.base.buildUrl('/'),
-
-        'Cache-Control': 'no-cache',
-
-        'Pragma': 'no-cache',
-
-        'Upgrade-Insecure-Requests': '1'
-      }
-    });
-
-    return response;
-  }
-
-  absolute(v) {
-    return v ? this.base.buildUrl(v) : '';
-  }
-
-  slug(url) {
-    try {
-      let p = new URL(this.absolute(url))
-        .pathname
-        .split('/')
-        .filter(Boolean);
-
-      return p[p.length - 1] || '';
-    } catch {
-      return '';
-    }
-  }
-
-  item($, el) {
-    const a = $(el)
-      .find(
-        'a[href*="/anime/"],a[href*="/series/"],a[href*="/movie/"],a[href]'
-      )
-      .first();
-
-    const href = a.attr('href') || '';
-
-    const img = $(el).find('img').first();
-
-    const title = (
-      a.attr('title') ||
-      img.attr('alt') ||
-      $(el)
-        .find('h1,h2,h3,h4,.title,.entry-title')
-        .first()
-        .text()
-    )
-      .replace(/^Image\s+/, '')
-      .trim();
-
-    if (!title || !href) return null;
-
-    const text = $(el)
-      .text()
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    return {
-      id: this.slug(href),
-      title,
-      image: this.absolute(
-        img.attr('src') ||
-        img.attr('data-src') ||
-        ''
-      ),
-      url: this.absolute(href),
-
-      type: /movie|movies/i.test(href)
-        ? 'movie'
-        : /anime|series/i.test(href)
-          ? 'series'
-          : 'unknown',
-
-      meta: text.match(/(\d+|\?)\s*EPS/i)?.[1] || '',
-
-      year: text.match(/\b(19|20)\d{2}\b/)?.[0] || ''
-    };
-  }
-
-  list($, selectors) {
-    const out = [];
-    const seen = new Set();
-
-    $(selectors).each((_, el) => {
-      const x = this.item($, el);
-
-      if (x && x.id && !seen.has(x.id)) {
-        seen.add(x.id);
-        out.push(x);
-      }
-    });
-
-    return out;
-  }
-
-  async page(path = '') {
-    const html = await this.fetch(path);
-
-    return {
-      html,
-      $: this.loadCheerio(html)
-    };
-  }
-}
-
-module.exports = { SiteExtractor };
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+       
