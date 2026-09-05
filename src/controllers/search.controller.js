@@ -36,10 +36,7 @@ class SearchController extends BaseController {
           const searchExtractor =
             new SearchExtractor(provider);
 
-          if (q) {
-            return await searchExtractor.searchFullPage(query);
-          }
-
+          // Use the search method for both q and suggestion
           return await searchExtractor.search(query);
         };
 
