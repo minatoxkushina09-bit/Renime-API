@@ -34,7 +34,7 @@ class SearchController extends BaseController {
           results = await searchExtractor.search(suggestion.trim());
         }
 
-        return res.status(200).json(results);
+        res.status(200).json(results);
 
       } catch (error) {
         logger.error('Error performing search', {
@@ -44,7 +44,7 @@ class SearchController extends BaseController {
           url: error.config?.url
         });
 
-        return res.status(error.response?.status || 500).json({
+        res.status(error.response?.status || 500).json({
           success: false,
           error: error.message,
           status: error.response?.status || 500,
