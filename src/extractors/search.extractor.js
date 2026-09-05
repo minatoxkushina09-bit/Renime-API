@@ -1,6 +1,10 @@
 const { SiteExtractor } = require('./site.extractor');
 
 class SearchExtractor extends SiteExtractor {
+  constructor(provider) {
+    super(provider);
+  }
+
   async search(query) {
     return {
       path: this.base.provider === 'animelok'
@@ -14,4 +18,4 @@ class SearchExtractor extends SiteExtractor {
   }
 }
 
-module.exports = { SearchExtractor };           
+module.exports = { SearchExtractor };
