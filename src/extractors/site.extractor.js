@@ -34,9 +34,12 @@ class SiteExtractor {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+
         Accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
+
+        'Accept-Language':
+          'en-US,en;q=0.9'
       }
     });
   }
@@ -52,6 +55,22 @@ class SiteExtractor {
     const response = await this.client.get(cleanPath);
 
     const html = response.data;
+
+    // ==============================
+    // DEBUG INFORMATION
+    // ==============================
+    console.log('==============================');
+    console.log('PROVIDER:', this.base.providerId);
+    console.log('URL:', cleanPath);
+    console.log('FULL URL:', this.base.baseUrl + cleanPath);
+    console.log('STATUS:', response.status);
+    console.log('HTML LENGTH:', html.length);
+
+    console.log('HTML PREVIEW START');
+    console.log(html.substring(0, 5000));
+    console.log('HTML PREVIEW END');
+
+    console.log('==============================');
 
     return {
       $: cheerio.load(html),
@@ -74,7 +93,10 @@ class SiteExtractor {
     }
 
     try {
-      return new URL(url, this.base.baseUrl).href;
+      return new URL(
+        url,
+        this.base.baseUrl
+      ).href;
     } catch (error) {
       return url;
     }
@@ -90,13 +112,13 @@ class SiteExtractor {
     $(selector).each((index, element) => {
       const item = $(element);
 
-      let anchor = item.is('a')
+      const anchor = item.is('a')
         ? item
         : item.find('a').first();
 
       const href = anchor.attr('href');
 
-      let title =
+      const title =
         item.find('.film-name').first().text().trim() ||
         item.find('.anime-name').first().text().trim() ||
         item.find('.name').first().text().trim() ||
@@ -117,8 +139,11 @@ class SiteExtractor {
         return;
       }
 
-      const absoluteHref = this.absoluteUrl(href);
-      const absoluteImage = this.absoluteUrl(image);
+      const absoluteHref =
+        this.absoluteUrl(href);
+
+      const absoluteImage =
+        this.absoluteUrl(image);
 
       const key =
         absoluteHref ||
@@ -133,8 +158,14 @@ class SiteExtractor {
       results.push({
         id: href
           ? href
-              .replace(/^https?:\/\/[^/]+/i, '')
-              .replace(/^\/+|\/+$/g, '')
+              .replace(
+                /^https?:\/\/[^/]+/i,
+                ''
+              )
+              .replace(
+                /^\/+|\/+$/g,
+                ''
+              )
           : String(index),
 
         title,
