@@ -21,17 +21,46 @@ class SearchController extends BaseController {
           );
         }
 
-        const provider = req.query.provider;
-        const searchExtractor = new SearchExtractor(provider);
+        const query = (q || suggestion).trim();
+        const requestedProvider = req.query.provider || 'animesky';
+
+        const performSearch = async (provider) => {
+          const searchExtractor = new SearchExtractor(provider);
+
+          return q
+            ? await searchExtractor.searchFullPage(query)
+            : await searchExtractor.search(query);
+        };
 
         let results;
 
-        if (q) {
-          // Full page search
-          results = await searchExtractor.searchFullPage(q.trim());
-        } else {
-          // AJAX suggestion search
-          results = await searchExtractor.search(suggestion.trim());
+        try {
+          results = await performSearch(requestedProvider);
+        } catch (error) {
+          const isBlocked = error.response?.status === 403;
+
+          // If AnimeSky blocks the server request,
+          // automatically try Animelok.
+          if (
+            isBlocked &&
+            requestedProvider.toLowerCase() === 'animesky'
+          ) {
+            logger.warn(
+              'AnimeSky search blocked, trying Animelok fallback',
+              {
+                query,
+                status: error.response?.status
+              }
+            );
+
+            results = await performSearch('animelok');
+
+            results.fallback = true;
+            results.originalProvider = 'animesky';
+            results.provider = 'animelok';
+          } else {
+            throw error;
+          }
         }
 
         return res.status(200).json(results);
