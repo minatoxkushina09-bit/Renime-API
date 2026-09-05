@@ -23,6 +23,7 @@ class SearchController extends BaseController {
 
         const provider = req.query.provider;
         const searchExtractor = new SearchExtractor(provider);
+
         let results;
 
         if (q) {
@@ -33,7 +34,7 @@ class SearchController extends BaseController {
           results = await searchExtractor.search(suggestion.trim());
         }
 
-        res.status(200).json(results);
+        return res.status(200).json(results);
 
       } catch (error) {
         logger.error('Error performing search', {
@@ -43,7 +44,7 @@ class SearchController extends BaseController {
           url: error.config?.url
         });
 
-        res.status(error.response?.status || 500).json({
+        return res.status(error.response?.status || 500).json({
           success: false,
           error: error.message,
           status: error.response?.status || 500,
