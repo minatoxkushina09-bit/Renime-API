@@ -16,11 +16,14 @@ class SearchController extends BaseController {
         const { suggestion, q } = req.query;
 
         if (!suggestion && !q) {
-          throw new BadRequestError('Either "suggestion" or "q" parameter is required');
+          throw new BadRequestError(
+            'Either "suggestion" or "q" parameter is required'
+          );
         }
 
         const provider = req.query.provider;
         const searchExtractor = new SearchExtractor(provider);
+
         let results;
 
         if (q) {
@@ -31,7 +34,8 @@ class SearchController extends BaseController {
           results = await searchExtractor.search(suggestion.trim());
         }
 
-                res.status(200).json(results);
+        return res.status(200).json(results);
+
       } catch (error) {
         logger.error('Error performing search', {
           message: error.message,
@@ -40,12 +44,15 @@ class SearchController extends BaseController {
           url: error.config?.url
         });
 
-        res.status(error.response?.status || 500).json({
+        return res.status(error.response?.status || 500).json({
           success: false,
           error: error.message,
           status: error.response?.status || 500,
           url: error.config?.url || null
         });
       }
+    });
+  }
+}
 
 module.exports = { SearchController };
