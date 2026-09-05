@@ -16,20 +16,44 @@ class DetailsController extends BaseController {
         const { id } = req.params;
 
         if (!id) {
-          throw new BadRequestError('ID parameter is required');
+          throw new BadRequestError(
+            'ID parameter is required'
+          );
         }
 
-        const provider = req.query.provider;
-        const detailsExtractor = new DetailsExtractor(provider);
-        const detailsData = await detailsExtractor.extractFromUrl(id);
+        const provider =
+          req.query.provider || 'animesky';
 
-        res.status(200).json(detailsData);
+        const detailsExtractor =
+          new DetailsExtractor(provider);
+
+        // DetailsExtractor has getDetails(),
+        // not extractFromUrl()
+        const detailsData =
+          await detailsExtractor.getDetails(id);
+
+        return res
+          .status(200)
+          .json(detailsData);
+
       } catch (error) {
-        logger.error('Error extracting details data', error);
-        throw new BadRequestError(`Failed to extract details data: ${error.message}`);
+        logger.error(
+          'Error extracting details data',
+          {
+            message: error.message,
+            stack: error.stack,
+            status: error.response?.status || null
+          }
+        );
+
+        throw new BadRequestError(
+          `Failed to extract details data: ${error.message}`
+        );
       }
     });
   }
 }
 
-module.exports = { DetailsController };
+module.exports = {
+  DetailsController
+};
