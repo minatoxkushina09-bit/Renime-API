@@ -9,25 +9,13 @@ class SearchExtractor extends SiteExtractor {
    * Main search method
    */
   async search(query) {
-    const cleanQuery = String(query || '').trim();
-    const encodedQuery = encodeURIComponent(cleanQuery);
-
-    if (!cleanQuery) {
-      return {
-        success: false,
-        query: cleanQuery,
-        provider: this.base.providerId,
-        results: [],
-        total: 0,
-        error: 'Search query is required'
-      };
-    }
+    const encodedQuery = encodeURIComponent(query);
 
     if (this.base.providerId === 'animelok') {
-      return this.searchAnimeLok(cleanQuery, encodedQuery);
+      return this.searchAnimeLok(query, encodedQuery);
     }
 
-    return this.searchAnimeSky(cleanQuery, encodedQuery);
+    return this.searchAnimeSky(query, encodedQuery);
   }
 
   /**
@@ -46,36 +34,14 @@ class SearchExtractor extends SiteExtractor {
         const { $, html } = await this.page(path);
 
         console.log('================================');
-        console.log('ANIMELOK SEARCH DEBUG');
-        console.log('================================');
-        console.log('PROVIDER: animelok');
+        console.log('ANIMELOK SEARCH');
         console.log('URL:', path);
         console.log(
           'FULL URL:',
           `${this.base.baseUrl}${path}`
         );
         console.log('HTML LENGTH:', html.length);
-
-        const lowerHtml = html.toLowerCase();
-        const queryIndex = lowerHtml.indexOf(
-          query.toLowerCase()
-        );
-
         console.log('QUERY:', query);
-        console.log('QUERY INDEX:', queryIndex);
-
-        if (queryIndex !== -1) {
-          console.log('QUERY CONTEXT START');
-
-          console.log(
-            html.substring(
-              Math.max(0, queryIndex - 500),
-              queryIndex + 1500
-            )
-          );
-
-          console.log('QUERY CONTEXT END');
-        }
 
         const results =
           this.extractAnimeLokResults($);
@@ -84,6 +50,8 @@ class SearchExtractor extends SiteExtractor {
           'EXTRACTED RESULTS:',
           results.length
         );
+
+        console.log('RESULTS:', results);
 
         console.log('================================');
 
@@ -96,6 +64,7 @@ class SearchExtractor extends SiteExtractor {
             total: results.length
           };
         }
+
       } catch (error) {
         lastError = error;
 
@@ -130,209 +99,238 @@ class SearchExtractor extends SiteExtractor {
 
   /**
    * Extract AnimeLok results
-   *
-   * This temporarily scans all links so we can
-   * discover AnimeLok's real URL structure.
    */
   extractAnimeLokResults($) {
-    console.log('================================');
-    console.log('ANIMELOK LINK DEBUG START');
-    console.log('================================');
-
-    const links = [];
-
-    $('a[href]').each((index, element) => {
-      const anchor = $(element);
-
-      const href = anchor.attr('href');
-
-      if (!href) {
-        return;
-      }
-
-      if (
-        href === '/' ||
-        href.startsWith('#') ||
-        href.startsWith('javascript:') ||
-        href.startsWith('mailto:') ||
-        href.includes('/search')
-      ) {
-        return;
-      }
-
-      const text =
-        anchor.text().replace(/\s+/g, ' ').trim();
-
-      const image = anchor.find('img').first();
-
-      const imageAlt =
-        image.attr('alt') ||
-        null;
-
-      const title =
-        anchor.attr('title') ||
-        imageAlt ||
-        text ||
-        null;
-
-      const parentHtml =
-        anchor
-          .parent()
-          .html()
-          ?.substring(0, 500)
-          .replace(/\s+/g, ' ') ||
-        null;
-
-      links.push({
-        index,
-        href,
-        absoluteUrl: this.absoluteUrl(href),
-        title,
-        text: text.substring(0, 150),
-        parentHtml
-      });
-    });
+    const results = [];
+    const seen = new Set();
 
     console.log(
-      'TOTAL VALID LINKS:',
-      links.length
-    );
-
-    /**
-     * Look for common anime URL patterns.
-     */
-    const possibleAnimeLinks =
-      links.filter((link) => {
-        const href =
-          String(link.href).toLowerCase();
-
-        return (
-          href.includes('/anime') ||
-          href.includes('/watch') ||
-          href.includes('/detail') ||
-          href.includes('/episode') ||
-          href.includes('/title') ||
-          href.includes('/tv/') ||
-          href.includes('/movie/') ||
-          href.includes('/series/') ||
-          href.includes('/show/')
-        );
-      });
-
-    console.log(
-      'POSSIBLE ANIME LINKS COUNT:',
-      possibleAnimeLinks.length
+      '================================'
     );
 
     console.log(
-      'POSSIBLE ANIME LINKS START'
+      'ANIMELOK EXTRACTION START'
     );
-
-    console.log(
-      JSON.stringify(
-        possibleAnimeLinks.slice(0, 50),
-        null,
-        2
-      )
-    );
-
-    console.log(
-      'POSSIBLE ANIME LINKS END'
-    );
-
-    /**
-     * If AnimeLok uses a completely different URL
-     * structure, these first links will reveal it.
-     */
-    console.log(
-      'FIRST 50 LINKS START'
-    );
-
-    console.log(
-      JSON.stringify(
-        links.slice(0, 50),
-        null,
-        2
-      )
-    );
-
-    console.log(
-      'FIRST 50 LINKS END'
-    );
-
-    /**
-     * Also inspect elements containing the search
-     * query result style structures.
-     */
-    const possibleContainers = [];
-
-    $(
-      'article, li, [class*="anime"], [class*="film"], [class*="card"], [class*="item"]'
-    ).each((index, element) => {
-      if (possibleContainers.length >= 30) {
-        return false;
-      }
-
-      const item = $(element);
-
-      const anchor = item.find('a[href]').first();
-
-      if (!anchor.length) {
-        return;
-      }
-
-      const href =
-        anchor.attr('href');
-
-      const text =
-        item.text()
-          .replace(/\s+/g, ' ')
-          .trim();
-
-      if (!text || text.length < 2) {
-        return;
-      }
-
-      possibleContainers.push({
-        index,
-        tag: element.tagName,
-        class: item.attr('class') || null,
-        href,
-        text: text.substring(0, 200),
-        html: $.html(item)
-          .substring(0, 600)
-          .replace(/\s+/g, ' ')
-      });
-    });
-
-    console.log(
-      'POSSIBLE CONTAINERS START'
-    );
-
-    console.log(
-      JSON.stringify(
-        possibleContainers,
-        null,
-        2
-      )
-    );
-
-    console.log(
-      'POSSIBLE CONTAINERS END'
-    );
-
-    console.log('================================');
-    console.log('ANIMELOK LINK DEBUG END');
-    console.log('================================');
 
     /*
-     * Temporary return.
+     * AnimeLok currently uses links such as:
      *
-     * We will replace this with the exact extraction
-     * logic once the logs reveal AnimeLok's real
-     * result URLs/classes.
+     * /anime/727986f217
+     * /anime/d621346892
+     * /anime/8385dfc102cb
+     *
+     * Instead of depending on unstable CSS classes,
+     * directly search for anime URLs.
      */
-    return [];
+
+    const animeLinks = $('a[href*="/anime/"]');
+
+    console.log(
+      'TOTAL ANIME LINK ELEMENTS:',
+      animeLinks.length
+    );
+
+    animeLinks.each((index, element) => {
+      try {
+        const anchor = $(element);
+
+        const href = anchor.attr('href');
+
+        if (!href) {
+          return;
+        }
+
+        /*
+         * Ignore invalid or unwanted links
+         */
+        if (
+          href === '/' ||
+          href.startsWith('#') ||
+          href.startsWith('javascript:') ||
+          href.startsWith('mailto:')
+        ) {
+          return;
+        }
+
+        /*
+         * Make sure this is actually an anime page.
+         *
+         * Supports:
+         *
+         * /anime/abc123
+         * https://animelok.live/anime/abc123
+         */
+
+        const absoluteUrl =
+          this.absoluteUrl(href);
+
+        if (!absoluteUrl) {
+          return;
+        }
+
+        /*
+         * Prevent duplicates
+         */
+        if (seen.has(absoluteUrl)) {
+          return;
+        }
+
+        /*
+         * Get the image.
+         *
+         * AnimeLok stores the anime title inside
+         * the image alt attribute.
+         */
+
+        const imageElement =
+          anchor.find('img').first();
+
+        /*
+         * Skip links that are not actual anime cards.
+         *
+         * Real anime result links contain an image.
+         */
+
+        if (!imageElement.length) {
+          return;
+        }
+
+        /*
+         * Extract title.
+         *
+         * Priority:
+         *
+         * 1. img alt
+         * 2. anchor title
+         * 3. aria-label
+         * 4. text
+         */
+
+        const title =
+          imageElement.attr('alt') ||
+          anchor.attr('title') ||
+          anchor.attr('aria-label') ||
+          anchor
+            .find(
+              'h1, h2, h3, h4, h5, h6'
+            )
+            .first()
+            .text()
+            .trim() ||
+          anchor.text().trim();
+
+        /*
+         * Skip if title is missing
+         */
+
+        if (
+          !title ||
+          title.length < 2
+        ) {
+          console.log(
+            'SKIPPED LINK - NO TITLE:',
+            href
+          );
+
+          return;
+        }
+
+        /*
+         * Extract image.
+         *
+         * AnimeLok appears to use data-nimg
+         * with normal src/image URLs.
+         */
+
+        const image =
+          imageElement.attr('data-src') ||
+          imageElement.attr('data-lazy-src') ||
+          imageElement.attr('data-original') ||
+          imageElement.attr('src') ||
+          null;
+
+        /*
+         * Create clean ID
+         *
+         * Example:
+         *
+         * /anime/727986f217
+         *
+         * becomes:
+         *
+         * 727986f217
+         */
+
+        const id =
+          href
+            .replace(
+              /^https?:\/\/[^/]+/i,
+              ''
+            )
+            .replace(
+              /^\/anime\//i,
+              ''
+            )
+            .replace(
+              /^\/+|\/+$/g,
+              ''
+            );
+
+        /*
+         * Final validation
+         */
+
+        if (!id) {
+          return;
+        }
+
+        /*
+         * Mark as seen only after
+         * confirming it is a valid anime
+         */
+
+        seen.add(absoluteUrl);
+
+        const result = {
+          id,
+          title: title.trim(),
+          url: absoluteUrl,
+          image: image
+            ? this.absoluteUrl(image)
+            : null,
+          type: null,
+          year: null
+        };
+
+        results.push(result);
+
+        console.log(
+          'ANIME FOUND:',
+          result
+        );
+
+      } catch (error) {
+        console.error(
+          'ERROR EXTRACTING ANIME LINK:',
+          error.message
+        );
+      }
+    });
+
+    console.log(
+      'TOTAL EXTRACTED:',
+      results.length
+    );
+
+    console.log(
+      'ANIMELOK EXTRACTION END'
+    );
+
+    console.log(
+      '================================'
+    );
+
+    return results;
   }
 
   /**
@@ -348,7 +346,8 @@ class SearchExtractor extends SiteExtractor {
 
     for (const path of paths) {
       try {
-        const { $ } = await this.page(path);
+        const { $ } =
+          await this.page(path);
 
         const selectors = [
           '.flw-item',
@@ -361,7 +360,8 @@ class SearchExtractor extends SiteExtractor {
         let results = [];
 
         for (const selector of selectors) {
-          results = this.list($, selector);
+          results =
+            this.list($, selector);
 
           if (results.length > 0) {
             break;
@@ -377,6 +377,7 @@ class SearchExtractor extends SiteExtractor {
             total: results.length
           };
         }
+
       } catch (error) {
         lastError = error;
 
@@ -405,7 +406,7 @@ class SearchExtractor extends SiteExtractor {
   }
 
   /**
-   * Compatibility method
+   * Full page search compatibility method
    */
   async searchFullPage(query) {
     return this.search(query);
