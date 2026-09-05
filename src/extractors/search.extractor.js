@@ -8,18 +8,43 @@ class SearchExtractor extends SiteExtractor {
   async search(query) {
     const encodedQuery = encodeURIComponent(query);
 
-    let paths;
+    let paths = [];
+    let selectors = [];
 
     if (this.base.providerId === 'animelok') {
-      // Animelok uses ?keyword=
       paths = [
-        `/search?keyword=${encodedQuery}`
+        `/search?keyword=${encodedQuery}`,
+        `/search?q=${encodedQuery}`,
+        `/?s=${encodedQuery}`
+      ];
+
+      selectors = [
+        '.search-item',
+        '.anime-item',
+        '.anime-card',
+        '.film_list-wrap .flw-item',
+        '.flw-item',
+        '.film-poster',
+        '.item',
+        'article'
       ];
     } else {
-      // AnimeSky
       paths = [
         `/search?query=${encodedQuery}`,
-        `/search?q=${encodedQuery}`
+        `/search?q=${encodedQuery}`,
+        `/?s=${encodedQuery}`
+      ];
+
+      selectors = [
+        '.flw-item',
+        '.film_list-wrap .flw-item',
+        '.film-poster',
+        '.anime-item',
+        '.anime-card',
+        '.search-item',
+        '.search-result',
+        '.item',
+        'article'
       ];
     }
 
@@ -28,18 +53,6 @@ class SearchExtractor extends SiteExtractor {
     for (const path of paths) {
       try {
         const { $ } = await this.page(path);
-
-        const selectors = [
-          '.flw-item',
-          '.film_list-wrap .flw-item',
-          '.film-poster',
-          '.anime-item',
-          '.anime-card',
-          '.search-item',
-          '.search-result',
-          'article',
-          '.item'
-        ];
 
         let results = [];
 
@@ -51,29 +64,23 @@ class SearchExtractor extends SiteExtractor {
           }
         }
 
-        return {
-          success: true,
-          query,
-          provider: this.base.providerId,
-          results,
-          total: results.length
-        };
+        if (results.length > 0) {
+          return {
+            success: true,
+            query,
+            provider: this.base.providerId,
+            results,
+            total: results.length
+          };
+        }
       } catch (error) {
         lastError = error;
 
-        if (
-          error.response?.status === 404 ||
-          error.response?.status === 403
-        ) {
-          continue;
-        }
-
-        throw error;
+        console.error(
+          `Search failed for ${this.base.providerId}: ${path}`,
+          error.message
+        );
       }
-    }
-
-    if (lastError) {
-      throw lastError;
     }
 
     return {
@@ -81,7 +88,8 @@ class SearchExtractor extends SiteExtractor {
       query,
       provider: this.base.providerId,
       results: [],
-      total: 0
+      total: 0,
+      error: lastError ? lastError.message : null
     };
   }
 
