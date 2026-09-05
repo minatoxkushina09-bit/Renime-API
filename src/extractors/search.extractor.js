@@ -8,34 +8,37 @@ class SearchExtractor extends SiteExtractor {
   async search(query) {
     const encodedQuery = encodeURIComponent(query);
 
-    const paths = [
-      `/search?query=${encodedQuery}`,
-      `/search?q=${encodedQuery}`,
-      `/?s=${encodedQuery}`,
-      `/search/${encodedQuery}`
-    ];
+    let paths;
+
+    if (this.base.providerId === 'animelok') {
+      // Animelok uses ?keyword=
+      paths = [
+        `/search?keyword=${encodedQuery}`
+      ];
+    } else {
+      // AnimeSky
+      paths = [
+        `/search?query=${encodedQuery}`,
+        `/search?q=${encodedQuery}`
+      ];
+    }
 
     let lastError = null;
 
     for (const path of paths) {
       try {
-        const { $, html } = await this.page(path);
-
-        if (!html) {
-          continue;
-        }
+        const { $ } = await this.page(path);
 
         const selectors = [
           '.flw-item',
           '.film_list-wrap .flw-item',
           '.film-poster',
-          '.film-detail',
           '.anime-item',
           '.anime-card',
           '.search-item',
           '.search-result',
-          '.item',
-          'article'
+          'article',
+          '.item'
         ];
 
         let results = [];
@@ -48,15 +51,13 @@ class SearchExtractor extends SiteExtractor {
           }
         }
 
-        if (results.length > 0) {
-          return {
-            success: true,
-            query,
-            provider: this.base.providerId,
-            results,
-            total: results.length
-          };
-        }
+        return {
+          success: true,
+          query,
+          provider: this.base.providerId,
+          results,
+          total: results.length
+        };
       } catch (error) {
         lastError = error;
 
@@ -66,6 +67,8 @@ class SearchExtractor extends SiteExtractor {
         ) {
           continue;
         }
+
+        throw error;
       }
     }
 
