@@ -22,14 +22,25 @@ class SearchController extends BaseController {
         }
 
         const query = (q || suggestion).trim();
-        const requestedProvider = req.query.provider || 'animesky';
+
+        if (!query) {
+          throw new BadRequestError(
+            'Search query cannot be empty'
+          );
+        }
+
+        const requestedProvider =
+          req.query.provider || 'animesky';
 
         const performSearch = async (provider) => {
-          const searchExtractor = new SearchExtractor(provider);
+          const searchExtractor =
+            new SearchExtractor(provider);
 
-          return q
-            ? await searchExtractor.searchFullPage(query)
-            : await searchExtractor.search(query);
+          if (q) {
+            return await searchExtractor.searchFullPage(query);
+          }
+
+          return await searchExtractor.search(query);
         };
 
         let results;
@@ -37,10 +48,9 @@ class SearchController extends BaseController {
         try {
           results = await performSearch(requestedProvider);
         } catch (error) {
-          const isBlocked = error.response?.status === 403;
+          const isBlocked =
+            error.response?.status === 403;
 
-          // If AnimeSky blocks the server request,
-          // automatically try Animelok.
           if (
             isBlocked &&
             requestedProvider.toLowerCase() === 'animesky'
@@ -57,7 +67,6 @@ class SearchController extends BaseController {
 
             results.fallback = true;
             results.originalProvider = 'animesky';
-            results.provider = 'animelok';
           } else {
             throw error;
           }
@@ -73,12 +82,14 @@ class SearchController extends BaseController {
           url: error.config?.url
         });
 
-        return res.status(error.response?.status || 500).json({
-          success: false,
-          error: error.message,
-          status: error.response?.status || 500,
-          url: error.config?.url || null
-        });
+        return res
+          .status(error.response?.status || 500)
+          .json({
+            success: false,
+            error: error.message,
+            status: error.response?.status || 500,
+            url: error.config?.url || null
+          });
       }
     });
   }
