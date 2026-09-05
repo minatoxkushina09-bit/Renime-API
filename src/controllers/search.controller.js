@@ -23,7 +23,6 @@ class SearchController extends BaseController {
 
         const provider = req.query.provider;
         const searchExtractor = new SearchExtractor(provider);
-
         let results;
 
         if (q) {
