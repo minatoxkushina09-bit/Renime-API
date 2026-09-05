@@ -13,54 +13,87 @@ class SearchController extends BaseController {
   async search(req, res, next) {
     await this.execute(req, res, next, async () => {
       try {
-        const { suggestion, q } = req.query;
+        // Support all query parameter formats
+        const {
+          suggestion,
+          q,
+          query: queryParam,
+          provider
+        } = req.query;
 
-        if (!suggestion && !q) {
+        // Check if at least one search parameter exists
+        if (!suggestion && !q && !queryParam) {
           throw new BadRequestError(
-            'Either "suggestion" or "q" parameter is required'
+            'Either "suggestion", "q", or "query" parameter is required'
           );
         }
 
-        const query = (q || suggestion).trim();
+        // Get the search query
+        const query = String(
+          q || queryParam || suggestion || ''
+        ).trim();
 
+        // Prevent empty queries
         if (!query) {
           throw new BadRequestError(
             'Search query cannot be empty'
           );
         }
 
-        const requestedProvider =
-          req.query.provider || 'animesky';
+        // Default provider
+        const requestedProvider = String(
+          provider || 'animesky'
+        )
+          .toLowerCase()
+          .trim();
 
-        const performSearch = async (provider) => {
+        // Allowed providers
+        const allowedProviders = [
+          'animesky',
+          'animelok'
+        ];
+
+        if (!allowedProviders.includes(requestedProvider)) {
+          throw new BadRequestError(
+            `Unsupported provider: ${requestedProvider}. ` +
+            `Supported providers are: ${allowedProviders.join(', ')}`
+          );
+        }
+
+        // Perform search
+        const performSearch = async (providerName) => {
           const searchExtractor =
-            new SearchExtractor(provider);
+            new SearchExtractor(providerName);
 
-          // Use the search method for both q and suggestion
           return await searchExtractor.search(query);
         };
 
         let results;
 
         try {
-          results = await performSearch(requestedProvider);
+          results = await performSearch(
+            requestedProvider
+          );
         } catch (error) {
-          const isBlocked =
-            error.response?.status === 403;
+          const status =
+            error.response?.status;
 
+          // If AnimeSky is blocked, try Animelok
           if (
-            isBlocked &&
-            requestedProvider.toLowerCase() === 'animesky'
+            status === 403 &&
+            requestedProvider === 'animesky'
           ) {
             logger.warn(
               'AnimeSky search blocked, trying Animelok fallback',
               {
                 query,
-                status: error.response?.status
+                status
               }
             );
 
-            results = await performSearch('animelok');
+            results = await performSearch(
+              'animelok'
+            );
 
             results.fallback = true;
             results.originalProvider = 'animesky';
@@ -69,22 +102,32 @@ class SearchController extends BaseController {
           }
         }
 
-        return res.status(200).json(results);
+        return res
+          .status(200)
+          .json(results);
 
       } catch (error) {
-        logger.error('Error performing search', {
-          message: error.message,
-          stack: error.stack,
-          status: error.response?.status,
-          url: error.config?.url
-        });
+        logger.error(
+          'Error performing search',
+          {
+            message: error.message,
+            stack: error.stack,
+            status: error.response?.status,
+            url: error.config?.url
+          }
+        );
+
+        const status =
+          error.statusCode ||
+          error.response?.status ||
+          500;
 
         return res
-          .status(error.response?.status || 500)
+          .status(status)
           .json({
             success: false,
             error: error.message,
-            status: error.response?.status || 500,
+            status,
             url: error.config?.url || null
           });
       }
