@@ -8,63 +8,78 @@ class SearchExtractor extends SiteExtractor {
   async search(query) {
     const encodedQuery = encodeURIComponent(query);
 
-    let paths;
+    const paths = [
+      `/search?query=${encodedQuery}`,
+      `/search?q=${encodedQuery}`,
+      `/?s=${encodedQuery}`,
+      `/search/${encodedQuery}`
+    ];
 
-    if (this.base.providerId === 'animelok') {
-      // Animelok does not use /search/naruto
-      // Try query-based search routes.
-      paths = [
-        `/search?query=${encodedQuery}`,
-        `/search?q=${encodedQuery}`
-      ];
-    } else {
-      // AnimeSky
-      paths = [
-        `/search?query=${encodedQuery}`,
-        `/search?q=${encodedQuery}`
-      ];
-    }
-
-    let lastError;
+    let lastError = null;
 
     for (const path of paths) {
       try {
         const { $, html } = await this.page(path);
 
-        const results = this.list(
-          $,
-          [
-            '.anime-item',
-            '.anime-card',
-            '.film-poster',
-            '.item',
-            'article',
-            '.search-item',
-            '.flw-item',
-            '.film_list-wrap .flw-item'
-          ].join(',')
-        );
-
-        return {
-          success: true,
-          query,
-          provider: this.base.providerId,
-          results,
-          total: results.length
-        };
-      } catch (error) {
-        lastError = error;
-
-        // If this URL returns 404, try the next search format.
-        if (error.response?.status === 404) {
+        if (!html) {
           continue;
         }
 
-        throw error;
+        const selectors = [
+          '.flw-item',
+          '.film_list-wrap .flw-item',
+          '.film-poster',
+          '.film-detail',
+          '.anime-item',
+          '.anime-card',
+          '.search-item',
+          '.search-result',
+          '.item',
+          'article'
+        ];
+
+        let results = [];
+
+        for (const selector of selectors) {
+          results = this.list($, selector);
+
+          if (results.length > 0) {
+            break;
+          }
+        }
+
+        if (results.length > 0) {
+          return {
+            success: true,
+            query,
+            provider: this.base.providerId,
+            results,
+            total: results.length
+          };
+        }
+      } catch (error) {
+        lastError = error;
+
+        if (
+          error.response?.status === 404 ||
+          error.response?.status === 403
+        ) {
+          continue;
+        }
       }
     }
 
-    throw lastError || new Error('Search request failed');
+    if (lastError) {
+      throw lastError;
+    }
+
+    return {
+      success: true,
+      query,
+      provider: this.base.providerId,
+      results: [],
+      total: 0
+    };
   }
 
   async searchFullPage(query) {
