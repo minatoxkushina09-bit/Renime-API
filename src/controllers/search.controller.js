@@ -1,7 +1,7 @@
 /**
  * Search Controller
  * Copyright (c) 2025 Dark & Pyro Team
- * ⚠️ Educational use only. Respect copyright laws.
+ * Educational use only. Respect copyright laws.
  */
 
 const { BaseController } = require('./base.controller');
