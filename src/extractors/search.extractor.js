@@ -6,10 +6,29 @@ class SearchExtractor extends SiteExtractor {
   }
 
   async search(query) {
+    const path = this.base.providerId === 'animelok'
+      ? `/search/${encodeURIComponent(query)}`
+      : `/search?query=${encodeURIComponent(query)}`;
+
+    const { $, html } = await this.page(path);
+
+    const results = this.list(
+      $,
+      [
+        '.anime-item',
+        '.anime-card',
+        '.film-poster',
+        '.item',
+        'article',
+        '.search-item'
+      ].join(',')
+    );
+
     return {
-      path: this.base.providerId === 'animelok'
-        ? `/search/${encodeURIComponent(query)}`
-        : `/search?query=${encodeURIComponent(query)}`
+      query,
+      provider: this.base.providerId,
+      results,
+      total: results.length
     };
   }
 
