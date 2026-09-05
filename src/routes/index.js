@@ -33,6 +33,7 @@ router.get('/embed/:id', (req, res, next) => embedController.getEmbed(req, res, 
 const searchSchema = z.object({
   suggestion: z.string().min(1).optional(),
   q: z.string().min(1).optional(),
+  provider: z.string().min(1).optional(),
 }).refine((data) => data.suggestion || data.q, {
   message: 'Either "suggestion" or "q" parameter is required',
 });
