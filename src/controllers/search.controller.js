@@ -31,13 +31,21 @@ class SearchController extends BaseController {
           results = await searchExtractor.search(suggestion.trim());
         }
 
-        res.status(200).json(results);
+                res.status(200).json(results);
       } catch (error) {
-        logger.error('Error performing search', error);
-        throw new BadRequestError('Failed to perform search');
+        logger.error('Error performing search', {
+          message: error.message,
+          stack: error.stack,
+          status: error.response?.status,
+          url: error.config?.url
+        });
+
+        res.status(error.response?.status || 500).json({
+          success: false,
+          error: error.message,
+          status: error.response?.status || 500,
+          url: error.config?.url || null
+        });
       }
-    });
-  }
-}
 
 module.exports = { SearchController };
