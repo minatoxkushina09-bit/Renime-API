@@ -1,17 +1,21 @@
 /**
  * Episodes Extractor
- * Compatible with AnimeSky and AnimeLok providers
+ * Compatible with AnimeSky and AnimeLok providers.
  *
- * AnimeLok episode structure verified from anime page text:
+ * Verified AnimeLok behavior:
+ * Anime page:
+ *   https://animelok.live/anime/{animeId}
  *
- * HIN - 24
- * TAM - 24
- * TEL - 24
- * ENG - 24
- * JAP - 24
+ * Episode URL:
+ *   https://animelok.live/watch/{animeId}?ep={episode}
  *
- * Episode watch URL:
- * https://animelok.live/watch/{animeId}?ep={episode}
+ * AnimeLok may expose episode counts like:
+ *   HIN - 24
+ *   TAM - 24
+ *   TEL - 24
+ *
+ * Or in compact text:
+ *   HIN - 24TAM - 24TEL - 24ENG - 24JAP - 24
  */
 
 const { SiteExtractor } = require('./site.extractor');
@@ -22,7 +26,10 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episode number from text.
+   * Extract an episode number from text.
+   *
+   * @param {string} text
+   * @returns {string}
    */
   getEpisodeNumber(text = '') {
     const value = String(text)
@@ -41,7 +48,7 @@ class EpisodesExtractor extends SiteExtractor {
       const match = value.match(pattern);
 
       if (match) {
-        return match[1] || '';
+        return match[1];
       }
     }
 
@@ -49,7 +56,10 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract ID from URL.
+   * Extract the last path segment from a URL.
+   *
+   * @param {string} url
+   * @returns {string}
    */
   getEpisodeId(url = '') {
     try {
@@ -59,25 +69,28 @@ class EpisodesExtractor extends SiteExtractor {
         return '';
       }
 
-      const parsed = new URL(absoluteUrl);
+      const parsedUrl = new URL(absoluteUrl);
 
-      const parts = parsed.pathname
+      const parts = parsedUrl.pathname
         .split('/')
         .filter(Boolean);
 
       return parts[parts.length - 1] || '';
-    } catch (error) {
+    } catch {
       return '';
     }
   }
 
   /**
-   * Check invalid URLs.
+   * Determine whether a URL should be ignored.
+   *
+   * @param {string} url
+   * @returns {boolean}
    */
   isInvalidUrl(url = '') {
     const value = String(url)
-      .toLowerCase()
-      .trim();
+      .trim()
+      .toLowerCase();
 
     return (
       !value ||
@@ -91,7 +104,11 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Add episode safely.
+   * Add an episode while preventing duplicates.
+   *
+   * @param {Array} episodes
+   * @param {Set} seen
+   * @param {Object} data
    */
   addEpisode(episodes, seen, data) {
     if (
@@ -105,8 +122,7 @@ class EpisodesExtractor extends SiteExtractor {
     }
 
     const episode = String(data.episode);
-
-    const key = `${episode}-${data.url}`;
+    const key = `${episode}:${data.url}`;
 
     if (seen.has(key)) {
       return;
@@ -115,50 +131,31 @@ class EpisodesExtractor extends SiteExtractor {
     seen.add(key);
 
     episodes.push({
-      id:
-        data.id ||
-        this.getEpisodeId(data.url),
-
+      id: data.id || this.getEpisodeId(data.url),
       episode,
-
-      title:
-        data.title ||
-        `Episode ${episode}`,
-
+      title: data.title || `Episode ${episode}`,
       url: data.url,
-
-      image:
-        data.image || null
+      image: data.image || null
     });
   }
 
   /**
    * Extract AnimeLok episode count.
    *
-   * Verified AnimeLok page format:
+   * Important:
+   * Do NOT require a word boundary after the number.
    *
-   * HIN - 24
-   * TAM - 24
-   * TEL - 24
-   * ENG - 24
-   * JAP - 24
+   * AnimeLok can return:
+   *   HIN - 24TAM - 24
    *
-   * Also supports:
+   * Therefore "24" is immediately followed by "TAM".
    *
-   * 24 EPS
-   * EP-24
-   * Episodes: 24
-   * 24 Episodes
+   * @param {Function} $
+   * @returns {number}
    */
-  getAnimeLokEpisodeCount($, html = '') {
-    const candidates = [];
-
-    const pageText = [
-      $('body').text(),
-      html
-    ]
-      .filter(Boolean)
-      .join('\n')
+  getAnimeLokEpisodeCount($) {
+    const pageText = $('body')
+      .text()
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -166,25 +163,28 @@ class EpisodesExtractor extends SiteExtractor {
       return 0;
     }
 
+    const candidates = [];
+
     /*
-     * Language episode counts.
+     * Language count examples:
      *
-     * Examples:
      * HIN - 24
      * TAM - 24
      * TEL - 24
      * ENG - 24
      * JAP - 24
+     *
+     * Compact version:
+     *
+     * HIN - 24TAM - 24TEL - 24
      */
     const languagePattern =
-      /\b(?:HIN|TAM|TEL|ENG|JAP|MAL|BEN|KAN|HINDI|TAMIL|TELUGU|ENGLISH|JAPANESE|MALAYALAM|BENGALI|KANNADA)\s*[-:|]?\s*(\d{1,4})\b/gi;
+      /(?:HIN|TAM|TEL|ENG|JAP|MAL|BEN|KAN|HINDI|TAMIL|TELUGU|ENGLISH|JAPANESE|MALAYALAM|BENGALI|KANNADA)\s*[-:|]?\s*(\d{1,4})/gi;
 
     let match;
 
-    while (
-      (match = languagePattern.exec(pageText)) !== null
-    ) {
-      const count = parseInt(match[1], 10);
+    while ((match = languagePattern.exec(pageText)) !== null) {
+      const count = Number.parseInt(match[1], 10);
 
       if (
         Number.isFinite(count) &&
@@ -196,27 +196,17 @@ class EpisodesExtractor extends SiteExtractor {
     }
 
     /*
-     * Explicit episode formats.
-     *
-     * Examples:
-     * 24 EPS
-     * 24 EP
-     * 24 Episodes
-     * Episodes: 24
-     * EP-24
+     * Generic episode count formats.
      */
-    const episodePatterns = [
+    const genericPatterns = [
       /\b(\d{1,4})\s*EPS?\b/gi,
       /\b(\d{1,4})\s*EPISODES?\b/gi,
-      /\bEP(?:ISODE)?\s*[-:#]?\s*(\d{1,4})\b/gi,
       /\bEPISODES?\s*[:\-]?\s*(\d{1,4})\b/gi
     ];
 
-    for (const pattern of episodePatterns) {
-      while (
-        (match = pattern.exec(pageText)) !== null
-      ) {
-        const count = parseInt(match[1], 10);
+    for (const pattern of genericPatterns) {
+      while ((match = pattern.exec(pageText)) !== null) {
+        const count = Number.parseInt(match[1], 10);
 
         if (
           Number.isFinite(count) &&
@@ -229,45 +219,43 @@ class EpisodesExtractor extends SiteExtractor {
     }
 
     /*
-     * Check useful data attributes.
+     * Check common HTML attributes.
      */
-    const attributeNames = [
+    const attributes = [
       'data-episodes',
       'data-episode-count',
-      'data-total-episodes',
-      'data-episode'
+      'data-total-episodes'
     ];
 
-    for (const attribute of attributeNames) {
-      $(`[${attribute}]`).each(
-        (_, element) => {
-          const value =
-            $(element).attr(attribute);
+    for (const attribute of attributes) {
+      $(`[${attribute}]`).each((_, element) => {
+        const value = $(element).attr(attribute);
+        const count = Number.parseInt(value, 10);
 
-          const count =
-            parseInt(value, 10);
-
-          if (
-            Number.isFinite(count) &&
-            count > 0 &&
-            count <= 2000
-          ) {
-            candidates.push(count);
-          }
+        if (
+          Number.isFinite(count) &&
+          count > 0 &&
+          count <= 2000
+        ) {
+          candidates.push(count);
         }
-      );
+      });
     }
+
+    console.log(
+      'ANIMELOK EPISODE CANDIDATES:',
+      candidates
+    );
 
     if (candidates.length === 0) {
       return 0;
     }
 
     /*
-     * AnimeLok can show one count per language.
-     * They should normally all be equal.
+     * Select the most frequently occurring count.
      *
-     * Use the most frequently occurring count.
-     * If there is a tie, use the largest count.
+     * AnimeLok usually repeats the same count
+     * for every available language.
      */
     const frequency = new Map();
 
@@ -281,26 +269,18 @@ class EpisodesExtractor extends SiteExtractor {
     let bestCount = 0;
     let bestFrequency = 0;
 
-    for (
-      const [count, countFrequency]
-      of frequency.entries()
-    ) {
+    for (const [count, occurrences] of frequency.entries()) {
       if (
-        countFrequency > bestFrequency ||
+        occurrences > bestFrequency ||
         (
-          countFrequency === bestFrequency &&
+          occurrences === bestFrequency &&
           count > bestCount
         )
       ) {
         bestCount = count;
-        bestFrequency = countFrequency;
+        bestFrequency = occurrences;
       }
     }
-
-    console.log(
-      'ANIMELOK EPISODE CANDIDATES:',
-      candidates
-    );
 
     console.log(
       'ANIMELOK DETECTED EPISODE COUNT:',
@@ -311,67 +291,50 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Generate AnimeLok episode URLs.
+   * Generate verified AnimeLok episode URLs.
+   *
+   * @param {string} id
+   * @param {number} episodeCount
+   * @returns {Array}
    */
-  createAnimeLokEpisodes(
-    id,
-    episodeCount
-  ) {
+  createAnimeLokEpisodes(id, episodeCount) {
     const episodes = [];
     const seen = new Set();
 
-    const safeCount =
-      Math.min(
-        Math.max(
-          parseInt(episodeCount, 10) || 0,
-          0
-        ),
-        2000
-      );
+    const count = Math.min(
+      Math.max(
+        Number.parseInt(episodeCount, 10) || 0,
+        0
+      ),
+      2000
+    );
 
-    for (
-      let episode = 1;
-      episode <= safeCount;
-      episode++
-    ) {
+    for (let episode = 1; episode <= count; episode++) {
       const url =
         `https://animelok.live/watch/` +
         `${encodeURIComponent(id)}?ep=${episode}`;
 
-      this.addEpisode(
-        episodes,
-        seen,
-        {
-          id:
-            `${id}-${episode}`,
-
-          episode:
-            String(episode),
-
-          title:
-            `Episode ${episode}`,
-
-          url,
-
-          image: null
-        }
-      );
+      this.addEpisode(episodes, seen, {
+        id: `${id}-${episode}`,
+        episode,
+        title: `Episode ${episode}`,
+        url,
+        image: null
+      });
     }
 
     return episodes;
   }
 
   /**
-   * Extract AnimeLok episodes from the anime page.
+   * Extract AnimeLok episodes.
    *
-   * Only one page request is needed.
+   * @param {string} id
+   * @param {number} season
+   * @returns {Promise<Object>}
    */
-  async extractAnimeLokEpisodes(
-    id,
-    season = 1
-  ) {
-    const encodedId =
-      encodeURIComponent(id);
+  async extractAnimeLokEpisodes(id, season = 1) {
+    const encodedId = encodeURIComponent(id);
 
     const paths = [
       `/anime/${encodedId}`,
@@ -382,33 +345,18 @@ class EpisodesExtractor extends SiteExtractor {
 
     for (const path of paths) {
       try {
-        console.log(
-          `TRYING ANIMELOK: ${path}`
-        );
+        console.log(`TRYING ANIMELOK: ${path}`);
 
-        const {
-          $,
-          html
-        } =
-          await this.page(path);
+        const { $, html } = await this.page(path);
 
-        if (
-          !html ||
-          html.length < 50
-        ) {
+        if (!html || html.length < 50) {
           continue;
         }
 
         const episodeCount =
-          this.getAnimeLokEpisodeCount(
-            $,
-            html
-          );
+          this.getAnimeLokEpisodeCount($);
 
-        if (
-          !episodeCount ||
-          episodeCount < 1
-        ) {
+        if (episodeCount < 1) {
           console.log(
             'NO ANIMELOK EPISODE COUNT FOUND'
           );
@@ -450,7 +398,8 @@ class EpisodesExtractor extends SiteExtractor {
   /**
    * Extract episodes from normal HTML.
    *
-   * Used for AnimeSky.
+   * @param {Function} $
+   * @returns {Array}
    */
   extractEpisodes($) {
     const episodes = [];
@@ -469,90 +418,64 @@ class EpisodesExtractor extends SiteExtractor {
     ];
 
     for (const selector of selectors) {
-      $(selector).each(
-        (_, element) => {
-          try {
-            const item =
-              $(element);
+      $(selector).each((_, element) => {
+        try {
+          const item = $(element);
 
-            const anchor =
-              item.is('a')
-                ? item
-                : item.find('a').first();
+          const anchor = item.is('a')
+            ? item
+            : item.find('a').first();
 
-            const href =
-              anchor.attr('href') ||
-              item.attr('data-url') ||
-              '';
+          const href =
+            anchor.attr('href') ||
+            item.attr('data-url') ||
+            '';
 
-            if (
-              this.isInvalidUrl(href)
-            ) {
-              return;
-            }
-
-            const episodeText =
-              item.attr('data-episode') ||
-              item.attr('data-episode-number') ||
-              item
-                .find('.episode-number')
-                .first()
-                .text() ||
-              item
-                .find('.episode-title')
-                .first()
-                .text() ||
-              anchor.text() ||
-              item.text();
-
-            const cleanText =
-              String(episodeText)
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            const episodeNumber =
-              this.getEpisodeNumber(
-                cleanText
-              );
-
-            if (!episodeNumber) {
-              return;
-            }
-
-            const url =
-              this.absoluteUrl(href);
-
-            if (!url) {
-              return;
-            }
-
-            this.addEpisode(
-              episodes,
-              seen,
-              {
-                id:
-                  this.getEpisodeId(url),
-
-                episode:
-                  episodeNumber,
-
-                title:
-                  cleanText ||
-                  `Episode ${episodeNumber}`,
-
-                url,
-
-                image: null
-              }
-            );
-          } catch (error) {
-            console.error(
-              'Episode extraction error:',
-              error.message
-            );
+          if (this.isInvalidUrl(href)) {
+            return;
           }
+
+          const episodeText =
+            item.attr('data-episode') ||
+            item.attr('data-episode-number') ||
+            item.find('.episode-number').first().text() ||
+            item.find('.episode-title').first().text() ||
+            anchor.text() ||
+            item.text();
+
+          const cleanText = String(episodeText)
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const episodeNumber =
+            this.getEpisodeNumber(cleanText);
+
+          if (!episodeNumber) {
+            return;
+          }
+
+          const url = this.absoluteUrl(href);
+
+          if (!url) {
+            return;
+          }
+
+          this.addEpisode(episodes, seen, {
+            id: this.getEpisodeId(url),
+            episode: episodeNumber,
+            title:
+              cleanText ||
+              `Episode ${episodeNumber}`,
+            url,
+            image: null
+          });
+        } catch (error) {
+          console.error(
+            'Episode extraction error:',
+            error.message
+          );
         }
-      );
+      });
 
       if (episodes.length > 0) {
         break;
@@ -564,182 +487,145 @@ class EpisodesExtractor extends SiteExtractor {
 
   /**
    * Extract numbered episode links.
+   *
+   * @param {Function} $
+   * @returns {Array}
    */
   extractFallbackEpisodes($) {
     const episodes = [];
     const seen = new Set();
 
-    $('a').each(
-      (_, element) => {
-        try {
-          const anchor =
-            $(element);
+    $('a').each((_, element) => {
+      try {
+        const anchor = $(element);
 
-          const href =
-            anchor.attr('href') || '';
+        const href =
+          anchor.attr('href') || '';
 
-          if (
-            this.isInvalidUrl(href)
-          ) {
-            return;
-          }
-
-          const text =
-            anchor
-              .text()
-              .replace(/\s+/g, ' ')
-              .trim();
-
-          const episodeNumber =
-            this.getEpisodeNumber(text);
-
-          if (!episodeNumber) {
-            return;
-          }
-
-          const url =
-            this.absoluteUrl(href);
-
-          if (!url) {
-            return;
-          }
-
-          this.addEpisode(
-            episodes,
-            seen,
-            {
-              id:
-                this.getEpisodeId(url),
-
-              episode:
-                episodeNumber,
-
-              title:
-                text ||
-                `Episode ${episodeNumber}`,
-
-              url,
-
-              image: null
-            }
-          );
-        } catch (error) {
-          console.error(
-            'Fallback extraction error:',
-            error.message
-          );
+        if (this.isInvalidUrl(href)) {
+          return;
         }
+
+        const text = anchor
+          .text()
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const episodeNumber =
+          this.getEpisodeNumber(text);
+
+        if (!episodeNumber) {
+          return;
+        }
+
+        const url = this.absoluteUrl(href);
+
+        if (!url) {
+          return;
+        }
+
+        this.addEpisode(episodes, seen, {
+          id: this.getEpisodeId(url),
+          episode: episodeNumber,
+          title:
+            text ||
+            `Episode ${episodeNumber}`,
+          url,
+          image: null
+        });
+      } catch (error) {
+        console.error(
+          'Fallback extraction error:',
+          error.message
+        );
       }
-    );
+    });
 
     return episodes;
   }
 
   /**
-   * Extract episode objects from scripts.
+   * Extract episode objects embedded in scripts.
+   *
+   * @param {Function} $
+   * @returns {Array}
    */
   extractEpisodesFromScripts($) {
     const episodes = [];
     const seen = new Set();
 
-    $('script').each(
-      (_, element) => {
-        try {
-          const content =
-            $(element).html() || '';
+    $('script').each((_, element) => {
+      try {
+        const content =
+          $(element).html() || '';
 
-          if (!content) {
-            return;
-          }
-
-          const patterns = [
-            /["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1000}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi,
-
-            /["'](?:url|href|link)["']\s*:\s*["']([^"']+)["'][\s\S]{0,1000}?["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?/gi
-          ];
-
-          patterns.forEach(
-            (pattern, index) => {
-              let match;
-
-              while (
-                (
-                  match =
-                    pattern.exec(content)
-                ) !== null
-              ) {
-                let episodeNumber;
-                let rawUrl;
-
-                if (index === 0) {
-                  episodeNumber =
-                    match[1];
-
-                  rawUrl =
-                    match[2];
-                } else {
-                  rawUrl =
-                    match[1];
-
-                  episodeNumber =
-                    match[2];
-                }
-
-                if (
-                  !episodeNumber ||
-                  !rawUrl ||
-                  this.isInvalidUrl(rawUrl)
-                ) {
-                  continue;
-                }
-
-                const url =
-                  this.absoluteUrl(rawUrl);
-
-                if (!url) {
-                  continue;
-                }
-
-                this.addEpisode(
-                  episodes,
-                  seen,
-                  {
-                    id:
-                      this.getEpisodeId(url),
-
-                    episode:
-                      episodeNumber,
-
-                    title:
-                      `Episode ${episodeNumber}`,
-
-                    url,
-
-                    image: null
-                  }
-                );
-              }
-            }
-          );
-        } catch (error) {
-          console.error(
-            'Script extraction error:',
-            error.message
-          );
+        if (!content) {
+          return;
         }
+
+        const patterns = [
+          /["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1000}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi,
+
+          /["'](?:url|href|link)["']\s*:\s*["']([^"']+)["'][\s\S]{0,1000}?["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?/gi
+        ];
+
+        patterns.forEach((pattern, index) => {
+          let match;
+
+          while ((match = pattern.exec(content)) !== null) {
+            const episodeNumber =
+              index === 0
+                ? match[1]
+                : match[2];
+
+            const rawUrl =
+              index === 0
+                ? match[2]
+                : match[1];
+
+            if (
+              !episodeNumber ||
+              !rawUrl ||
+              this.isInvalidUrl(rawUrl)
+            ) {
+              continue;
+            }
+
+            const url =
+              this.absoluteUrl(rawUrl);
+
+            if (!url) {
+              continue;
+            }
+
+            this.addEpisode(episodes, seen, {
+              id: this.getEpisodeId(url),
+              episode: episodeNumber,
+              title: `Episode ${episodeNumber}`,
+              url,
+              image: null
+            });
+          }
+        });
+      } catch (error) {
+        console.error(
+          'Script extraction error:',
+          error.message
+        );
       }
-    );
+    });
 
     return episodes;
   }
 
   /**
    * Extract AnimeSky episodes.
+   *
+   * @param {string} id
+   * @param {number} season
+   * @returns {Promise<Object>}
    */
-  async extractAnimeSkyEpisodes(
-    id,
-    season = 1
-  ) {
+  async extractAnimeSkyEpisodes(id, season = 1) {
     const encodedId =
       encodeURIComponent(id);
 
@@ -754,16 +640,12 @@ class EpisodesExtractor extends SiteExtractor {
 
     for (const path of paths) {
       try {
-        const {
-          $,
-          html
-        } =
+        console.log(`TRYING ANIMESKY: ${path}`);
+
+        const { $, html } =
           await this.page(path);
 
-        if (
-          !html ||
-          html.length < 50
-        ) {
+        if (!html || html.length < 50) {
           continue;
         }
 
@@ -783,8 +665,8 @@ class EpisodesExtractor extends SiteExtractor {
         if (episodes.length > 0) {
           episodes.sort(
             (a, b) =>
-              parseFloat(a.episode) -
-              parseFloat(b.episode)
+              Number.parseFloat(a.episode) -
+              Number.parseFloat(b.episode)
           );
 
           return {
@@ -813,14 +695,22 @@ class EpisodesExtractor extends SiteExtractor {
 
   /**
    * Main extraction method.
+   *
+   * @param {string} id
+   * @param {number} season
+   * @returns {Promise<Object>}
    */
-  async extractFromAnimePage(
-    id,
-    season = 1
-  ) {
-    if (
-      this.base.providerId === 'animelok'
-    ) {
+  async extractFromAnimePage(id, season = 1) {
+    const providerId = String(
+      this.base?.providerId ||
+      this.providerId ||
+      this.provider ||
+      ''
+    )
+      .toLowerCase()
+      .trim();
+
+    if (providerId === 'animelok') {
       return this.extractAnimeLokEpisodes(
         id,
         season
@@ -835,11 +725,12 @@ class EpisodesExtractor extends SiteExtractor {
 
   /**
    * Compatibility method.
+   *
+   * @param {string} id
+   * @param {number} season
+   * @returns {Promise<Object>}
    */
-  async extractFromAjax(
-    id,
-    season = 1
-  ) {
+  async extractFromAjax(id, season = 1) {
     return this.extractFromAnimePage(
       id,
       season
