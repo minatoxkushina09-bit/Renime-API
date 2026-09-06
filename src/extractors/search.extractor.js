@@ -93,74 +93,127 @@ class SearchExtractor extends SiteExtractor {
 
     $('a[href*="/anime/"]').each(
       (_, element) => {
-        const anchor = $(element);
+        try {
+          const anchor = $(element);
 
-        const href =
-          anchor.attr('href') || '';
+          const href =
+            anchor.attr('href') || '';
 
-        if (
-          !href ||
-          href === '/' ||
-          href.startsWith('#') ||
-          href.startsWith('javascript:')
-        ) {
-          return;
+          if (
+            !href ||
+            href === '/' ||
+            href.startsWith('#') ||
+            href.startsWith('javascript:')
+          ) {
+            return;
+          }
+
+          const absoluteUrl =
+            this.absoluteUrl(href);
+
+          if (
+            !absoluteUrl ||
+            seen.has(absoluteUrl)
+          ) {
+            return;
+          }
+
+          const imageElement =
+            anchor.find('img').first();
+
+          const image =
+            imageElement.attr('data-src') ||
+            imageElement.attr('data-lazy-src') ||
+            imageElement.attr('data-original') ||
+            imageElement.attr('src') ||
+            null;
+
+          const title =
+            imageElement.attr('alt') ||
+            anchor.attr('title') ||
+            anchor.attr('aria-label') ||
+            anchor
+              .find(
+                'h1, h2, h3, h4, h5, h6'
+              )
+              .first()
+              .text()
+              .trim() ||
+            anchor.text().trim();
+
+          if (
+            !title ||
+            title.length < 2
+          ) {
+            return;
+          }
+
+          /*
+           * Extract a clean anime ID.
+           *
+           * Example:
+           * https://animelok.live/anime/727986?2717
+           *
+           * Result:
+           * 727986
+           */
+          let id = '';
+
+          try {
+            const parsed =
+              new URL(absoluteUrl);
+
+            const parts =
+              parsed.pathname
+                .split('/')
+                .filter(Boolean);
+
+            const animeIndex =
+              parts.findIndex(
+                part =>
+                  part.toLowerCase() ===
+                  'anime'
+              );
+
+            if (
+              animeIndex !== -1 &&
+              parts[animeIndex + 1]
+            ) {
+              id =
+                parts[animeIndex + 1];
+            }
+          } catch (error) {
+            console.error(
+              'AnimeLok ID extraction error:',
+              error.message
+            );
+
+            return;
+          }
+
+          if (!id) {
+            return;
+          }
+
+          seen.add(absoluteUrl);
+
+          results.push({
+            id,
+            title: title.trim(),
+            url: absoluteUrl,
+            image: image
+              ? this.absoluteUrl(image)
+              : null,
+            type: null,
+            year: null
+          });
+
+        } catch (error) {
+          console.error(
+            'AnimeLok result extraction error:',
+            error.message
+          );
         }
-
-        const imageElement =
-          anchor.find('img').first();
-
-        const image =
-          imageElement.attr('data-src') ||
-          imageElement.attr('data-lazy-src') ||
-          imageElement.attr('data-original') ||
-          imageElement.attr('src') ||
-          null;
-
-        const title =
-          imageElement.attr('alt') ||
-          anchor.attr('title') ||
-          anchor.attr('aria-label') ||
-          anchor
-            .find('h1, h2, h3, h4, h5, h6')
-            .first()
-            .text()
-            .trim() ||
-          anchor.text().trim();
-
-        if (!title || title.length < 2) {
-          return;
-        }
-
-        const absoluteUrl =
-          this.absoluteUrl(href);
-
-        if (!absoluteUrl || seen.has(absoluteUrl)) {
-          return;
-        }
-
-        const id =
-          href
-            .replace(/^https?:\/\/[^/]+/i, '')
-            .replace(/^\/anime\//i, '')
-            .replace(/^\/+|\/+$/g, '');
-
-        if (!id) {
-          return;
-        }
-
-        seen.add(absoluteUrl);
-
-        results.push({
-          id,
-          title: title.trim(),
-          url: absoluteUrl,
-          image: image
-            ? this.absoluteUrl(image)
-            : null,
-          type: null,
-          year: null
-        });
       }
     );
 
@@ -206,7 +259,8 @@ class SearchExtractor extends SiteExtractor {
         }
 
         /*
-         * Fallback: look directly for anime links.
+         * Fallback: look directly
+         * for anime links.
          */
         if (results.length === 0) {
           results =
@@ -222,6 +276,7 @@ class SearchExtractor extends SiteExtractor {
             total: results.length
           };
         }
+
       } catch (error) {
         lastError = error;
 
@@ -257,72 +312,95 @@ class SearchExtractor extends SiteExtractor {
     const seen = new Set();
 
     $('a').each((index, element) => {
-      const anchor = $(element);
+      try {
+        const anchor = $(element);
 
-      const href =
-        anchor.attr('href') || '';
+        const href =
+          anchor.attr('href') || '';
 
-      if (!href) {
-        return;
+        if (!href) {
+          return;
+        }
+
+        const text =
+          anchor
+            .text()
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const imageElement =
+          anchor.find('img').first();
+
+        const title =
+          imageElement.attr('alt') ||
+          anchor.attr('title') ||
+          text;
+
+        if (
+          !title ||
+          title.length < 2
+        ) {
+          return;
+        }
+
+        const image =
+          imageElement.attr('data-src') ||
+          imageElement.attr('data-lazy-src') ||
+          imageElement.attr('src') ||
+          null;
+
+        const url =
+          this.absoluteUrl(href);
+
+        if (
+          !url ||
+          seen.has(url)
+        ) {
+          return;
+        }
+
+        /*
+         * Only keep links that
+         * look like anime pages.
+         */
+        if (
+          !/anime|series|movie/i.test(
+            href
+          )
+        ) {
+          return;
+        }
+
+        seen.add(url);
+
+        const id =
+          href
+            .replace(
+              /^https?:\/\/[^/]+/i,
+              ''
+            )
+            .replace(
+              /^\/+|\/+$/g,
+              ''
+            );
+
+        results.push({
+          id: id || String(index),
+          title: title.trim(),
+          url,
+          image: image
+            ? this.absoluteUrl(image)
+            : null,
+          type: null,
+          year: null
+        });
+
+      } catch (error) {
+        console.error(
+          'Generic extraction error:',
+          error.message
+        );
       }
-
-      const text =
-        anchor
-          .text()
-          .replace(/\s+/g, ' ')
-          .trim();
-
-      const imageElement =
-        anchor.find('img').first();
-
-      const title =
-        imageElement.attr('alt') ||
-        anchor.attr('title') ||
-        text;
-
-      if (!title || title.length < 2) {
-        return;
-      }
-
-      const image =
-        imageElement.attr('data-src') ||
-        imageElement.attr('data-lazy-src') ||
-        imageElement.attr('src') ||
-        null;
-
-      const url =
-        this.absoluteUrl(href);
-
-      if (!url || seen.has(url)) {
-        return;
-      }
-
-      /*
-       * Only keep links that look like anime pages.
-       */
-      if (
-        !/anime|series|movie/i.test(href)
-      ) {
-        return;
-      }
-
-      seen.add(url);
-
-      const id =
-        href
-          .replace(/^https?:\/\/[^/]+/i, '')
-          .replace(/^\/+|\/+$/g, '');
-
-      results.push({
-        id: id || String(index),
-        title: title.trim(),
-        url,
-        image: image
-          ? this.absoluteUrl(image)
-          : null,
-        type: null,
-        year: null
-      });
     });
 
     return results;
