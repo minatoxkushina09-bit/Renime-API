@@ -1,176 +1,300 @@
 /**
- * Episodes Page Extractor
+ * Episodes Extractor
+ * Compatible with SiteExtractor providers
  */
 
-const { BaseExtractor } = require('./base.extractor');
-const { WatchAnimeWorldBase } = require('../base/base');
+const { SiteExtractor } = require('./site.extractor');
 
-class EpisodesExtractor extends BaseExtractor {
-  constructor(providerKey) {
-    super();
-    this.base = new WatchAnimeWorldBase(providerKey);
+class EpisodesExtractor extends SiteExtractor {
+  constructor(provider = 'animesky') {
+    super(provider);
   }
 
-  getSourceName() {
-    return (
-      this.base.providerName ||
-      this.base.providerId ||
-      'Unknown'
+  /**
+   * Extract episode number from text.
+   */
+  getEpisodeNumber(text = '') {
+    const value = String(text)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let match = value.match(
+      /episode\s*(\d+(?:\.\d+)?)/i
     );
-  }
 
-  extractEpisode($, item) {
-    const episodeNum =
-      this.extractText(
-        $(item).find('.num-epi').first()
-      ) ||
-      this.extractText(
-        $(item).find('.episode-number').first()
-      );
-
-    const title =
-      this.extractText(
-        $(item).find('.entry-title').first()
-      ) ||
-      this.extractText(
-        $(item).find('.title').first()
-      ) ||
-      this.extractText(
-        $(item).find('.name').first()
-      );
-
-    const image =
-      this.extractAttribute(
-        $(item).find('img').first(),
-        'data-src'
-      ) ||
-      this.extractAttribute(
-        $(item).find('img').first(),
-        'data-lazy-src'
-      ) ||
-      this.extractAttribute(
-        $(item).find('img').first(),
-        'src'
-      );
-
-    const link =
-      this.extractAttribute(
-        $(item).find('a.lnk-blk').first(),
-        'href'
-      ) ||
-      this.extractAttribute(
-        $(item).find('a[href]').first(),
-        'href'
-      );
-
-    let episodeId = '';
-
-    if (link) {
-      try {
-        const fullUrl =
-          this.base.buildUrl(link);
-
-        const urlParts =
-          fullUrl
-            .split('/')
-            .filter(Boolean);
-
-        episodeId =
-          urlParts[
-            urlParts.length - 1
-          ] || '';
-      } catch (error) {
-        episodeId = '';
-      }
+    if (match) {
+      return match[1];
     }
 
-    let detectedSeason = '';
-    let episode = '';
+    match = value.match(
+      /\bep\.?\s*(\d+(?:\.\d+)?)/i
+    );
 
-    if (episodeNum) {
-      let match =
-        episodeNum.match(
-          /(\d+)\s*[xX]\s*(\d+)/
-        );
-
-      if (match) {
-        detectedSeason = match[1];
-        episode = match[2];
-      } else {
-        match =
-          episodeNum.match(
-            /[sS]\s*(\d+)\s*[eE]\s*(\d+)/
-          );
-
-        if (match) {
-          detectedSeason = match[1];
-          episode = match[2];
-        } else {
-          const epMatch =
-            episodeNum.match(/\d+/);
-
-          if (epMatch) {
-            episode = epMatch[0];
-          }
-        }
-      }
+    if (match) {
+      return match[1];
     }
 
-    return {
-      id: episodeId,
-      season: detectedSeason,
-      episode,
-      title,
-      image:
-        this.normalizeImageUrl(image),
-      url: link
-        ? this.base.buildUrl(link)
-        : ''
-    };
+    match = value.match(
+      /s(\d+)\s*e(\d+(?:\.\d+)?)/i
+    );
+
+    if (match) {
+      return match[2];
+    }
+
+    match = value.match(
+      /(\d+)\s*x\s*(\d+(?:\.\d+)?)/i
+    );
+
+    if (match) {
+      return match[2];
+    }
+
+    match = value.match(
+      /^\s*(\d+(?:\.\d+)?)\s*$/
+    );
+
+    if (match) {
+      return match[1];
+    }
+
+    return '';
   }
 
-  async extract(html) {
-    const $ = this.loadCheerio(html);
+  /**
+   * Extract season number.
+   */
+  getSeasonNumber(text = '', fallback = '') {
+    const value = String(text)
+      .replace(/\s+/g, ' ')
+      .trim();
 
+    let match = value.match(
+      /s(\d+)\s*e\d+/i
+    );
+
+    if (match) {
+      return match[1];
+    }
+
+    match = value.match(
+      /(\d+)\s*x\s*\d+/i
+    );
+
+    if (match) {
+      return match[1];
+    }
+
+    match = value.match(
+      /season\s*(\d+)/i
+    );
+
+    if (match) {
+      return match[1];
+    }
+
+    return String(fallback || '');
+  }
+
+  /**
+   * Get ID from episode URL.
+   */
+  getEpisodeId(url = '') {
+    if (!url) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(
+        this.absoluteUrl(url)
+      );
+
+      const parts = parsed.pathname
+        .split('/')
+        .filter(Boolean);
+
+      return parts[parts.length - 1] || '';
+    } catch (error) {
+      const parts = String(url)
+        .split('/')
+        .filter(Boolean);
+
+      return parts[parts.length - 1] || '';
+    }
+  }
+
+  /**
+   * Check whether an element looks like an episode.
+   */
+  isEpisodeElement($, element) {
+    const item = $(element);
+
+    const text = item
+      .text()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const href =
+      item.is('a')
+        ? item.attr('href')
+        : item.find('a').first().attr('href');
+
+    if (
+      /episode\s*\d+/i.test(text) ||
+      /\bep\.?\s*\d+/i.test(text) ||
+      /\bs\d+\s*e\d+/i.test(text) ||
+      /\d+\s*x\s*\d+/i.test(text)
+    ) {
+      return true;
+    }
+
+    if (
+      href &&
+      (
+        /episode/i.test(href) ||
+        /watch/i.test(href)
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Extract episodes from loaded Cheerio page.
+   */
+  extractEpisodes($, season = 1) {
     const episodes = [];
     const seen = new Set();
 
     const selectors = [
       '.episode-item',
+      '.episode',
       '.episodes li',
+      '.episode-list li',
       '.episodelist li',
+      '.eps li',
+      '.eps-item',
+      '.list-episode li',
       '.aa-cnt li',
       '.listing li',
-      'li'
+      '[class*="episode"]',
+      'a[href*="episode"]',
+      'a[href*="/watch/"]'
     ];
 
     for (const selector of selectors) {
-      $(selector).each((_, element) => {
+      $(selector).each((index, element) => {
         try {
-          const episode =
-            this.extractEpisode(
-              $,
-              element
-            );
+          const item = $(element);
 
           if (
-            !episode.title &&
-            !episode.episode &&
-            !episode.id
+            !this.isEpisodeElement(
+              $,
+              item
+            )
           ) {
             return;
           }
 
+          const anchor = item.is('a')
+            ? item
+            : item.find('a').first();
+
+          const href =
+            anchor.attr('href') || '';
+
+          const url =
+            this.absoluteUrl(href);
+
+          const text = (
+            item
+              .find('.episode-title')
+              .first()
+              .text() ||
+
+            item
+              .find('.entry-title')
+              .first()
+              .text() ||
+
+            item
+              .find('.title')
+              .first()
+              .text() ||
+
+            item
+              .find('.name')
+              .first()
+              .text() ||
+
+            item
+              .find('.num-epi')
+              .first()
+              .text() ||
+
+            item
+              .find('.episode-number')
+              .first()
+              .text() ||
+
+            anchor.text() ||
+
+            item.text()
+          )
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const episodeNumber =
+            this.getEpisodeNumber(text);
+
+          if (!episodeNumber) {
+            return;
+          }
+
+          const imageElement =
+            item.find('img').first();
+
+          const image =
+            imageElement.attr('data-src') ||
+            imageElement.attr('data-lazy-src') ||
+            imageElement.attr('data-original') ||
+            imageElement.attr('src') ||
+            null;
+
+          const episodeId =
+            this.getEpisodeId(
+              url || href
+            );
+
           const key =
-            episode.id ||
-            `${episode.season}-${episode.episode}-${episode.title}`;
+            url ||
+            `${episodeNumber}-${text}`;
 
           if (seen.has(key)) {
             return;
           }
 
           seen.add(key);
-          episodes.push(episode);
+
+          episodes.push({
+            id: episodeId,
+            season:
+              this.getSeasonNumber(
+                text,
+                season
+              ),
+            episode: episodeNumber,
+            title:
+              text ||
+              `Episode ${episodeNumber}`,
+            url,
+            image:
+              image
+                ? this.absoluteUrl(image)
+                : null
+          });
 
         } catch (error) {
           console.error(
@@ -185,380 +309,160 @@ class EpisodesExtractor extends BaseExtractor {
       }
     }
 
-    console.log(
-      'TOTAL EPISODES:',
-      episodes.length
-    );
+    return episodes;
+  }
+
+  /**
+   * Fallback extraction from all links.
+   */
+  extractFallbackEpisodes(
+    $,
+    season = 1
+  ) {
+    const episodes = [];
+    const seen = new Set();
+
+    $('a').each((index, element) => {
+      const anchor = $(element);
+
+      const href =
+        anchor.attr('href') || '';
+
+      const text =
+        anchor
+          .text()
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const episodeNumber =
+        this.getEpisodeNumber(text);
+
+      const looksLikeEpisode =
+        episodeNumber &&
+        (
+          /episode/i.test(text) ||
+          /\bep\.?/i.test(text) ||
+          /\bs\d+\s*e\d+/i.test(text) ||
+          /\d+\s*x\s*\d+/i.test(text) ||
+          /episode|watch/i.test(href)
+        );
+
+      if (!looksLikeEpisode) {
+        return;
+      }
+
+      const url =
+        this.absoluteUrl(href);
+
+      if (!url || seen.has(url)) {
+        return;
+      }
+
+      seen.add(url);
+
+      episodes.push({
+        id: this.getEpisodeId(url),
+        season:
+          this.getSeasonNumber(
+            text,
+            season
+          ),
+        episode: episodeNumber,
+        title:
+          text ||
+          `Episode ${episodeNumber}`,
+        url,
+        image: null
+      });
+    });
 
     return episodes;
   }
 
-  async getAnimePage(id) {
-    const { httpClient } =
-      require('../utils/http');
-
-    const { getRandomUserAgent } =
-      require('../config/user-agents');
-
+  /**
+   * Fetch anime page and extract episodes.
+   */
+  async extractFromAnimePage(
+    id,
+    season = 1
+  ) {
     const encodedId =
       encodeURIComponent(id);
 
-    const possiblePaths =
-      this.base.providerId === 'animelok'
-        ? [
-            `/anime/${encodedId}`,
-            `/anime/${encodedId}/`,
-            `/series/${encodedId}`,
-            `/series/${encodedId}/`
-          ]
-        : [
-            `/series/${encodedId}/`,
-            `/movies/${encodedId}/`
-          ];
+    let paths = [];
+
+    if (
+      this.base.providerId ===
+      'animelok'
+    ) {
+      paths = [
+        `/anime/${encodedId}`,
+        `/anime/${encodedId}/`,
+        `/series/${encodedId}`,
+        `/series/${encodedId}/`
+      ];
+    } else {
+      paths = [
+        `/anime/${encodedId}`,
+        `/anime/${encodedId}/`,
+        `/series/${encodedId}`,
+        `/series/${encodedId}/`,
+        `/movies/${encodedId}`,
+        `/movies/${encodedId}/`
+      ];
+    }
 
     let lastError = null;
 
-    for (const path of possiblePaths) {
-      const url =
-        this.base.buildUrl(path);
-
+    for (const path of paths) {
       try {
         console.log(
-          'TRYING ANIME PAGE:',
-          url
+          'FETCHING EPISODES:',
+          `${this.base.baseUrl}${path}`
         );
 
-        const html =
-          await httpClient.get(url, {
-            headers: {
-              'User-Agent':
-                getRandomUserAgent(),
-
-              Accept:
-                'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-
-              'Accept-Language':
-                'en-US,en;q=0.9'
-            }
-          });
+        const {
+          $,
+          html
+        } = await this.page(path);
 
         if (
           !html ||
-          typeof html !== 'string'
+          html.length < 100
         ) {
           continue;
         }
 
-        console.log(
-          'PAGE LENGTH:',
-          html.length
-        );
-
-        return {
-          html,
-          url
-        };
-
-      } catch (error) {
-        lastError = error;
-
-        console.error(
-          'PAGE REQUEST FAILED:',
-          url,
-          error.message
-        );
-      }
-    }
-
-    throw (
-      lastError ||
-      new Error(
-        `Failed to fetch anime page: ${id}`
-      )
-    );
-  }
-
-  async getPostId(id) {
-    const page =
-      await this.getAnimePage(id);
-
-    const html = page.html;
-
-    const $ =
-      this.loadCheerio(html);
-
-    console.log(
-      'SEARCHING POST ID IN:',
-      page.url
-    );
-
-    // Method 1: body class
-    const bodyClass =
-      $('body').attr('class') || '';
-
-    let match =
-      bodyClass.match(
-        /postid-(\d+)/i
-      );
-
-    if (match) {
-      console.log(
-        'POST ID FOUND IN BODY:',
-        match[1]
-      );
-
-      return {
-        postId: match[1],
-        url: page.url
-      };
-    }
-
-    // Method 2: article ID
-    const articleId =
-      $('article[id*="post-"]')
-        .first()
-        .attr('id');
-
-    if (articleId) {
-      match =
-        articleId.match(
-          /post-(\d+)/i
-        );
-
-      if (match) {
-        console.log(
-          'POST ID FOUND IN ARTICLE:',
-          match[1]
-        );
-
-        return {
-          postId: match[1],
-          url: page.url
-        };
-      }
-    }
-
-    // Method 3: data-post
-    const dataPost =
-      $('[data-post]')
-        .first()
-        .attr('data-post');
-
-    if (
-      dataPost &&
-      /^\d+$/.test(
-        String(dataPost)
-      )
-    ) {
-      console.log(
-        'POST ID FOUND IN DATA-POST:',
-        dataPost
-      );
-
-      return {
-        postId: String(dataPost),
-        url: page.url
-      };
-    }
-
-    // Method 4: data-post-id
-    const dataPostId =
-      $('[data-post-id]')
-        .first()
-        .attr('data-post-id');
-
-    if (
-      dataPostId &&
-      /^\d+$/.test(
-        String(dataPostId)
-      )
-    ) {
-      console.log(
-        'POST ID FOUND IN DATA-POST-ID:',
-        dataPostId
-      );
-
-      return {
-        postId: String(dataPostId),
-        url: page.url
-      };
-    }
-
-    // Method 5: hidden input
-    const hiddenPost =
-      $('input[name="post"]')
-        .first()
-        .val();
-
-    if (
-      hiddenPost &&
-      /^\d+$/.test(
-        String(hiddenPost)
-      )
-    ) {
-      console.log(
-        'POST ID FOUND IN INPUT:',
-        hiddenPost
-      );
-
-      return {
-        postId: String(hiddenPost),
-        url: page.url
-      };
-    }
-
-    // Method 6: Search raw HTML
-    match =
-      html.match(
-        /postid-(\d+)/i
-      );
-
-    if (match) {
-      return {
-        postId: match[1],
-        url: page.url
-      };
-    }
-
-    // Method 7: JavaScript post_id
-    match =
-      html.match(
-        /["']post_id["']\s*[:=]\s*["']?(\d+)/i
-      );
-
-    if (match) {
-      console.log(
-        'POST ID FOUND IN SCRIPT:',
-        match[1]
-      );
-
-      return {
-        postId: match[1],
-        url: page.url
-      };
-    }
-
-    // Method 8: Generic post value
-    match =
-      html.match(
-        /["']post["']\s*[:=]\s*["']?(\d+)/i
-      );
-
-    if (match) {
-      console.log(
-        'POST ID FOUND AS POST:',
-        match[1]
-      );
-
-      return {
-        postId: match[1],
-        url: page.url
-      };
-    }
-
-    console.error(
-      'POST ID NOT FOUND'
-    );
-
-    throw new Error(
-      `Could not find post ID for: ${id}`
-    );
-  }
-
-  async extractFromAjax(id, season) {
-    const { httpClient } =
-      require('../utils/http');
-
-    const { getRandomUserAgent } =
-      require('../config/user-agents');
-
-    console.log('====================');
-    console.log('EPISODES REQUEST');
-    console.log(
-      'PROVIDER:',
-      this.base.providerId
-    );
-    console.log('ANIME ID:', id);
-    console.log('SEASON:', season);
-
-    const animeData =
-      await this.getPostId(id);
-
-    const postId =
-      animeData.postId;
-
-    console.log(
-      'POST ID:',
-      postId
-    );
-
-    const params = [
-      `season=${encodeURIComponent(season)}`,
-      `post=${encodeURIComponent(postId)}`
-    ].join('&');
-
-    const ajaxUrls = [
-      `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&${params}`,
-
-      `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&season=${encodeURIComponent(season)}&post_id=${encodeURIComponent(postId)}`,
-
-      `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&season=${encodeURIComponent(season)}&id=${encodeURIComponent(postId)}`
-    ];
-
-    let lastError = null;
-
-    for (const ajaxUrl of ajaxUrls) {
-      try {
-        console.log(
-          'TRYING AJAX:',
-          ajaxUrl
-        );
-
-        const html =
-          await httpClient.get(
-            ajaxUrl,
-            {
-              headers: {
-                'User-Agent':
-                  getRandomUserAgent(),
-
-                Accept: '*/*',
-
-                'Accept-Language':
-                  'en-US,en;q=0.9',
-
-                Referer:
-                  animeData.url,
-
-                'X-Requested-With':
-                  'XMLHttpRequest'
-              }
-            }
+        let episodes =
+          this.extractEpisodes(
+            $,
+            season
           );
 
-        if (
-          !html ||
-          typeof html !== 'string'
-        ) {
-          continue;
+        /*
+         * Try fallback extraction.
+         */
+        if (episodes.length === 0) {
+          episodes =
+            this.extractFallbackEpisodes(
+              $,
+              season
+            );
         }
 
-        console.log(
-          'AJAX LENGTH:',
-          html.length
+        /*
+         * Sort episodes numerically.
+         */
+        episodes.sort(
+          (a, b) =>
+            parseFloat(a.episode) -
+            parseFloat(b.episode)
         );
-
-        const episodes =
-          await this.extract(html);
 
         if (episodes.length > 0) {
-          console.log(
-            'EPISODES FOUND:',
-            episodes.length
-          );
-
           return {
-            postId,
+            postId: null,
+            season,
             episodes
           };
         }
@@ -567,7 +471,7 @@ class EpisodesExtractor extends BaseExtractor {
         lastError = error;
 
         console.error(
-          'AJAX FAILED:',
+          `Failed to fetch ${path}:`,
           error.message
         );
       }
@@ -576,8 +480,21 @@ class EpisodesExtractor extends BaseExtractor {
     throw (
       lastError ||
       new Error(
-        'No episodes were found'
+        `No episodes found for anime: ${id}`
       )
+    );
+  }
+
+  /**
+   * Controller compatibility method.
+   */
+  async extractFromAjax(
+    id,
+    season
+  ) {
+    return this.extractFromAnimePage(
+      id,
+      season
     );
   }
 }
