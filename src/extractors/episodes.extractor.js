@@ -38,6 +38,83 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
+   * Extract episode count from AnimeLok page text.
+   *
+   * Supports formats such as:
+   * 220 Episodes
+   * 220 EPS
+   * Episodes: 220
+   */
+  getAnimeLokEpisodeCount($, html = '') {
+    const pageText = [
+      $('body').text(),
+      html
+    ].join(' ');
+
+    const patterns = [
+      /(\d+)\s*(?:episodes?|eps?)\b/i,
+      /episodes?\s*[:\-]?\s*(\d+)/i,
+      /eps?\s*[:\-]?\s*(\d+)/i
+    ];
+
+    let highestCount = 0;
+
+    for (const pattern of patterns) {
+      let match;
+
+      const globalPattern = new RegExp(
+        pattern.source,
+        `${pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`}`
+      );
+
+      while (
+        (match = globalPattern.exec(pageText)) !== null
+      ) {
+        const count = parseInt(match[1], 10);
+
+        if (
+          Number.isInteger(count) &&
+          count > highestCount &&
+          count <= 5000
+        ) {
+          highestCount = count;
+        }
+      }
+    }
+
+    return highestCount;
+  }
+
+  /**
+   * Build AnimeLok episode list.
+   *
+   * Verified URL pattern:
+   * /watch/{animeId}?ep={episodeNumber}
+   */
+  createAnimeLokEpisodes(id, totalEpisodes) {
+    const episodes = [];
+    const encodedId = encodeURIComponent(id);
+
+    for (
+      let episode = 1;
+      episode <= totalEpisodes;
+      episode++
+    ) {
+      episodes.push({
+        id: `${id}-${episode}`,
+        episode: String(episode),
+        title: `Episode ${episode}`,
+        url:
+          `https://animelok.live/watch/` +
+          `${encodedId}?ep=${episode}`,
+        image: null
+      });
+    }
+
+    return episodes;
+  }
+
+  /**
    * Extract ID from URL.
    */
   getEpisodeId(url = '') {
@@ -149,10 +226,6 @@ class EpisodesExtractor extends SiteExtractor {
             ? item
             : item.find('a').first();
 
-          if (!anchor.length) {
-            return;
-          }
-
           const href =
             anchor.attr('href') ||
             item.attr('data-url') ||
@@ -165,8 +238,12 @@ class EpisodesExtractor extends SiteExtractor {
           const episodeText =
             item.attr('data-episode') ||
             item.attr('data-episode-number') ||
-            item.find('.episode-number').first().text() ||
-            item.find('.episode-title').first().text() ||
+            item.find('.episode-number')
+              .first()
+              .text() ||
+            item.find('.episode-title')
+              .first()
+              .text() ||
             anchor.text() ||
             item.text();
 
@@ -376,96 +453,152 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * AnimeLok fallback.
+   * Extract AnimeLok episodes.
    *
-   * If AnimeLok does not expose the episode
-   * list in the HTML, return a valid watch URL
-   * instead of failing the API.
+   * AnimeLok uses:
+   * /watch/{animeId}?ep={episodeNumber}
    */
-  createAnimeLokFallback(id) {
-    const cleanId = String(id).trim();
-
-    return [
-      {
-        id: cleanId,
-
-        episode: '1',
-
-        title: 'Episode 1',
-
-        url:
-          `https://animelok.live/watch/${encodeURIComponent(cleanId)}`,
-
-        image: null
-      }
-    ];
-  }
-
-  /**
-   * Extract episodes from anime page.
-   */
-  async extractFromAnimePage(id, season = 1) {
-    const cleanId = String(id).trim();
+  async extractAnimeLokEpisodes(id, season = 1) {
     const encodedId =
-      encodeURIComponent(cleanId);
+      encodeURIComponent(id);
 
-    const paths =
-      this.base.providerId === 'animelok'
-        ? [
-            `/anime/${encodedId}`,
-            `/anime/${encodedId}/`
-          ]
-        : [
-            `/anime/${encodedId}`,
-            `/anime/${encodedId}/`,
-            `/series/${encodedId}`,
-            `/series/${encodedId}/`
-          ];
+    const paths = [
+      `/anime/${encodedId}`,
+      `/anime/${encodedId}/`
+    ];
 
     let lastError = null;
 
     for (const path of paths) {
       try {
         console.log(
-          `TRYING ${this.base.providerId}: ${path}`
+          `TRYING AnimeLok: ${path}`
         );
 
         const { $, html } =
           await this.page(path);
 
-        if (
-          !html ||
-          html.length < 50
-        ) {
+        if (!html || html.length < 50) {
+          continue;
+        }
+
+        /*
+         * First try extracting real episode
+         * links from the page.
+         */
+        let episodes =
+          this.extractEpisodes($);
+
+        if (episodes.length === 0) {
+          episodes =
+            this.extractFallbackEpisodes($);
+        }
+
+        if (episodes.length === 0) {
+          episodes =
+            this.extractEpisodesFromScripts($);
+        }
+
+        if (episodes.length > 1) {
+          episodes.sort(
+            (a, b) =>
+              parseFloat(a.episode) -
+              parseFloat(b.episode)
+          );
+
+          return {
+            postId: String(id),
+            season,
+            episodes
+          };
+        }
+
+        /*
+         * If AnimeLok exposes only metadata,
+         * read the total episode count and
+         * generate URLs using the verified
+         * ?ep={number} pattern.
+         */
+        const totalEpisodes =
+          this.getAnimeLokEpisodeCount(
+            $,
+            html
+          );
+
+        console.log(
+          'ANIMELOK TOTAL EPISODES:',
+          totalEpisodes
+        );
+
+        if (totalEpisodes > 0) {
+          return {
+            postId: String(id),
+            season,
+
+            episodes:
+              this.createAnimeLokEpisodes(
+                id,
+                totalEpisodes
+              )
+          };
+        }
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `AnimeLok request failed: ${path}`,
+          error.message
+        );
+      }
+    }
+
+    throw (
+      lastError ||
+      new Error(
+        `Could not extract episode count for anime: ${id}`
+      )
+    );
+  }
+
+  /**
+   * Extract episodes from AnimeSky.
+   */
+  async extractAnimeSkyEpisodes(
+    id,
+    season = 1
+  ) {
+    const encodedId =
+      encodeURIComponent(id);
+
+    const paths = [
+      `/anime/${encodedId}`,
+      `/anime/${encodedId}/`,
+      `/series/${encodedId}`,
+      `/series/${encodedId}/`
+    ];
+
+    let lastError = null;
+
+    for (const path of paths) {
+      try {
+        const { $, html } =
+          await this.page(path);
+
+        if (!html || html.length < 50) {
           continue;
         }
 
         let episodes =
           this.extractEpisodes($);
 
-        console.log(
-          'NORMAL EXTRACTION:',
-          episodes.length
-        );
-
         if (episodes.length === 0) {
           episodes =
             this.extractFallbackEpisodes($);
-
-          console.log(
-            'FALLBACK EXTRACTION:',
-            episodes.length
-          );
         }
 
         if (episodes.length === 0) {
           episodes =
             this.extractEpisodesFromScripts($);
-
-          console.log(
-            'SCRIPT EXTRACTION:',
-            episodes.length
-          );
         }
 
         if (episodes.length > 0) {
@@ -476,56 +609,51 @@ class EpisodesExtractor extends SiteExtractor {
           );
 
           return {
-            postId: cleanId,
+            postId: String(id),
             season,
             episodes
           };
         }
       } catch (error) {
         lastError = error;
-
-        console.error(
-          `Failed to fetch ${path}:`,
-          error.message
-        );
       }
-    }
-
-    /*
-     * FINAL AnimeLok fallback.
-     *
-     * This is important. Even if AnimeLok returns
-     * 403 or the HTML contains no extractable
-     * episodes, the API will still return a valid
-     * result instead of:
-     *
-     * "Could not extract episodes for anime"
-     */
-    if (this.base.providerId === 'animelok') {
-      console.log(
-        `USING ANIMELOK FALLBACK FOR: ${cleanId}`
-      );
-
-      return {
-        postId: cleanId,
-        season,
-        episodes:
-          this.createAnimeLokFallback(cleanId)
-      };
     }
 
     throw (
       lastError ||
       new Error(
-        `Could not extract episodes for anime: ${cleanId}`
+        `Could not extract episodes for anime: ${id}`
       )
+    );
+  }
+
+  /**
+   * Main extraction method.
+   */
+  async extractFromAnimePage(
+    id,
+    season = 1
+  ) {
+    if (this.base.providerId === 'animelok') {
+      return this.extractAnimeLokEpisodes(
+        id,
+        season
+      );
+    }
+
+    return this.extractAnimeSkyEpisodes(
+      id,
+      season
     );
   }
 
   /**
    * Compatibility method.
    */
-  async extractFromAjax(id, season = 1) {
+  async extractFromAjax(
+    id,
+    season = 1
+  ) {
     return this.extractFromAnimePage(
       id,
       season
