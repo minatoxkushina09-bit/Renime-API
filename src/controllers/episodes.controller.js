@@ -1,7 +1,5 @@
 /**
  * Episodes Controller
- * Copyright (c) 2025 Dark & Pyro Team
- * ⚠️ Educational use only. Respect copyright laws.
  */
 
 const { BaseController } = require('./base.controller');
@@ -16,34 +14,74 @@ class EpisodesController extends BaseController {
         const { id, season } = req.params;
 
         if (!id) {
-          throw new BadRequestError('ID parameter is required');
+          throw new BadRequestError(
+            'ID parameter is required'
+          );
         }
 
-        if (!season) {
-          throw new BadRequestError('Season parameter is required');
+        const seasonNum =
+          parseInt(season, 10);
+
+        if (
+          isNaN(seasonNum) ||
+          seasonNum < 1
+        ) {
+          throw new BadRequestError(
+            'Season must be a positive integer'
+          );
         }
 
-        const seasonNum = parseInt(season, 10);
-        if (isNaN(seasonNum) || seasonNum < 1) {
-          throw new BadRequestError('Season must be a positive integer');
-        }
+        const provider =
+          String(
+            req.query.provider || 'animesky'
+          )
+            .toLowerCase()
+            .trim();
 
-        const provider = req.query.provider;
-        const episodesExtractor = new EpisodesExtractor(provider);
-        const result = await episodesExtractor.extractFromAjax(id, seasonNum);
+        const episodesExtractor =
+          new EpisodesExtractor(provider);
 
-        res.status(200).json({
-          id: id,
-          postId: result.postId,
-          season: seasonNum,
-          episodes: result.episodes,
+        const result =
+          await episodesExtractor.extractFromAjax(
+            id,
+            seasonNum
+          );
+
+        return res.status(200).json({
+          success: true,
+
+          data: {
+            id,
+
+            postId:
+              result.postId,
+
+            season:
+              seasonNum,
+
+            episodes:
+              result.episodes
+          },
+
+          provider,
+
+          timestamp:
+            new Date().toISOString()
         });
       } catch (error) {
-        logger.error('Error extracting episodes data', error);
-        throw new BadRequestError(`Failed to extract episodes data: ${error.message}`);
+        logger.error(
+          'Error extracting episodes data',
+          error
+        );
+
+        throw new BadRequestError(
+          `Failed to extract episodes data: ${error.message}`
+        );
       }
     });
   }
 }
 
-module.exports = { EpisodesController };
+module.exports = {
+  EpisodesController
+};
