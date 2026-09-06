@@ -14,7 +14,9 @@ class EpisodesExtractor extends SiteExtractor {
    * Extract episode number from text.
    */
   getEpisodeNumber(text = '') {
-    const value = String(text).trim();
+    const value = String(text)
+      .replace(/\s+/g, ' ')
+      .trim();
 
     let match = value.match(
       /episode\s*(\d+(?:\.\d+)?)/i
@@ -77,6 +79,7 @@ class EpisodesExtractor extends SiteExtractor {
         .filter(Boolean);
 
       return parts[parts.length - 1] || '';
+
     } catch (error) {
       const parts = String(url)
         .split('/')
@@ -87,29 +90,55 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Check if an element probably represents an episode.
+   * Check whether an element is a real episode.
    */
   isEpisodeElement($, element) {
-    const text = $(element)
+    const item = $(element);
+
+    const text = item
       .text()
       .replace(/\s+/g, ' ')
       .trim();
 
     const href =
-      $(element).attr('href') ||
-      $(element).find('a').first().attr('href') ||
+      item.attr('href') ||
+      item.find('a').first().attr('href') ||
       '';
 
+    /*
+     * Reject navigation links and generic links.
+     */
+
     if (
-      /episode/i.test(text) ||
-      /\bep\.?\s*\d+/i.test(text) ||
-      /\bs\d+\s*e\d+/i.test(text) ||
-      /\d+\s*x\s*\d+/i.test(text)
+      /latest-episode/i.test(href) ||
+      /latest episode/i.test(text) ||
+      /all-episodes/i.test(href) ||
+      /episode-list/i.test(href) ||
+      /^\/?latest/i.test(href)
     ) {
+      return false;
+    }
+
+    /*
+     * Require a real episode number in text.
+     */
+
+    const episodeNumber =
+      this.getEpisodeNumber(text);
+
+    if (episodeNumber) {
       return true;
     }
 
-    if (/episode|watch/i.test(href)) {
+    /*
+     * Support episode numbers directly inside URLs.
+     */
+
+    if (
+      /episode[-_/]?\d+/i.test(href) ||
+      /ep[-_/]?\d+/i.test(href) ||
+      /\/watch\/.*\d+/i.test(href)
+    ) {
       return true;
     }
 
@@ -117,106 +146,155 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract all possible episodes from anime page.
+   * Extract episodes from a loaded anime page.
    */
   extractEpisodes($) {
     const episodes = [];
     const seen = new Set();
 
     const selectors = [
+      '.episode-item',
       '.episode',
       '.episodes li',
       '.episode-list li',
-      '.episode-item',
+      '.episodelist li',
       '.eps li',
       '.eps-item',
       '.list-episode li',
-      '.server-item',
       '[class*="episode"]',
-      'a[href*="episode"]',
+      'a[href*="/episode/"]',
       'a[href*="/watch/"]'
     ];
 
     for (const selector of selectors) {
       $(selector).each((index, element) => {
-        const item = $(element);
+        try {
+          const item = $(element);
 
-        if (!this.isEpisodeElement($, item)) {
-          return;
-        }
+          if (
+            !this.isEpisodeElement(
+              $,
+              item
+            )
+          ) {
+            return;
+          }
 
-        const anchor = item.is('a')
-          ? item
-          : item.find('a').first();
+          const anchor = item.is('a')
+            ? item
+            : item.find('a').first();
 
-        const href = anchor.attr('href') || '';
+          const href =
+            anchor.attr('href') || '';
 
-        const absoluteUrl =
-          this.absoluteUrl(href);
+          if (!href) {
+            return;
+          }
 
-        const text = (
-          item.find('.episode-title')
-            .first()
-            .text() ||
+          /*
+           * Ignore generic navigation URLs.
+           */
 
-          item.find('.entry-title')
-            .first()
-            .text() ||
+          if (
+            /latest-episode/i.test(href) ||
+            /all-episodes/i.test(href) ||
+            /episode-list/i.test(href)
+          ) {
+            return;
+          }
 
-          item.find('.title')
-            .first()
-            .text() ||
+          const absoluteUrl =
+            this.absoluteUrl(href);
 
-          item.find('.name')
-            .first()
-            .text() ||
+          const text = (
+            item.find('.episode-title')
+              .first()
+              .text() ||
 
-          anchor.text() ||
+            item.find('.entry-title')
+              .first()
+              .text() ||
 
-          item.text()
-        )
-          .replace(/\s+/g, ' ')
-          .trim();
+            item.find('.episode-number')
+              .first()
+              .text() ||
 
-        const episodeNumber =
-          this.getEpisodeNumber(text);
+            item.find('.num-epi')
+              .first()
+              .text() ||
 
-        const image =
-          item.find('img')
-            .first()
-            .attr('data-src') ||
+            item.find('.title')
+              .first()
+              .text() ||
 
-          item.find('img')
-            .first()
-            .attr('data-lazy-src') ||
+            item.find('.name')
+              .first()
+              .text() ||
 
-          item.find('img')
-            .first()
-            .attr('src') ||
+            anchor.text() ||
 
-          null;
-
-        const episodeId =
-          this.getEpisodeId(
-            absoluteUrl || href
-          );
-
-        const key =
-          absoluteUrl ||
-          `${episodeNumber}-${text}`;
-
-        if (
-          !seen.has(key) &&
-          (
-            episodeNumber ||
-            /episode|ep\.?/i.test(text)
+            item.text()
           )
-        ) {
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          let episodeNumber =
+            this.getEpisodeNumber(text);
+
+          /*
+           * Try extracting the episode number
+           * from the URL if not present in text.
+           */
+
+          if (!episodeNumber) {
+            const urlMatch =
+              href.match(
+                /(?:episode|ep)[-_/]?(\d+(?:\.\d+)?)/i
+              );
+
+            if (urlMatch) {
+              episodeNumber =
+                urlMatch[1];
+            }
+          }
+
+          /*
+           * Do not add items without
+           * a confirmed episode number.
+           */
+
+          if (!episodeNumber) {
+            return;
+          }
+
+          const imageElement =
+            item.find('img').first();
+
+          const image =
+            imageElement.attr('data-src') ||
+            imageElement.attr('data-lazy-src') ||
+            imageElement.attr('data-original') ||
+            imageElement.attr('src') ||
+            null;
+
+          const episodeId =
+            this.getEpisodeId(
+              absoluteUrl || href
+            );
+
+          const key =
+            absoluteUrl ||
+            `${episodeNumber}-${text}`;
+
+          if (seen.has(key)) {
+            return;
+          }
+
           seen.add(key);
 
           episodes.push({
             id: episodeId,
-            episode: episodeNumber || '',
+            episode: episodeNumber,
             title:
               text ||
               `Episode ${episodeNumber}`,
@@ -225,6 +303,12 @@ class EpisodesExtractor extends SiteExtractor {
               ? this.absoluteUrl(image)
               : null
           });
+
+        } catch (error) {
+          console.error(
+            'Episode extraction error:',
+            error.message
+          );
         }
       });
 
@@ -237,7 +321,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Get episodes directly from anime page.
+   * Get episodes directly from the anime page.
    */
   async extractFromAnimePage(
     id,
@@ -248,7 +332,9 @@ class EpisodesExtractor extends SiteExtractor {
 
     let paths = [];
 
-    if (this.base.providerId === 'animelok') {
+    if (
+      this.base.providerId === 'animelok'
+    ) {
       paths = [
         `/anime/${encodedId}`,
         `/anime/${encodedId}/`
@@ -267,14 +353,24 @@ class EpisodesExtractor extends SiteExtractor {
     for (const path of paths) {
       try {
         console.log(
-          'TRYING EPISODES PAGE:',
+          '================================'
+        );
+
+        console.log(
+          'TRYING EPISODES PAGE:'
+        );
+
+        console.log(
           `${this.base.baseUrl}${path}`
         );
 
         const { $, html } =
           await this.page(path);
 
-        if (!html || html.length < 100) {
+        if (
+          !html ||
+          html.length < 100
+        ) {
           continue;
         }
 
@@ -288,74 +384,127 @@ class EpisodesExtractor extends SiteExtractor {
 
         /*
          * Fallback:
-         * Search all links.
+         * Check every link, but only accept
+         * links with a real episode number.
          */
+
         if (episodes.length === 0) {
           const fallbackEpisodes = [];
           const seen = new Set();
 
           $('a').each(
             (_, element) => {
-              const anchor = $(element);
+              try {
+                const anchor =
+                  $(element);
 
-              const href =
-                anchor.attr('href') ||
-                '';
+                const href =
+                  anchor.attr('href') ||
+                  '';
 
-              const text =
-                anchor
-                  .text()
-                  .replace(/\s+/g, ' ')
-                  .trim();
+                const text =
+                  anchor
+                    .text()
+                    .replace(/\s+/g, ' ')
+                    .trim();
 
-              const isEpisode =
-                /episode/i.test(text) ||
-                /\bep\.?\s*\d+/i.test(text) ||
-                /\bs\d+\s*e\d+/i.test(text) ||
-                /\d+\s*x\s*\d+/i.test(text) ||
-                /episode|watch/i.test(href);
+                /*
+                 * Ignore navigation links.
+                 */
 
-              if (!isEpisode) {
-                return;
+                if (
+                  /latest-episode/i.test(href) ||
+                  /latest episode/i.test(text) ||
+                  /all-episodes/i.test(href) ||
+                  /episode-list/i.test(href)
+                ) {
+                  return;
+                }
+
+                let episodeNumber =
+                  this.getEpisodeNumber(
+                    text
+                  );
+
+                /*
+                 * Try URL if text does not
+                 * contain an episode number.
+                 */
+
+                if (!episodeNumber) {
+                  const urlMatch =
+                    href.match(
+                      /(?:episode|ep)[-_/]?(\d+(?:\.\d+)?)/i
+                    );
+
+                  if (urlMatch) {
+                    episodeNumber =
+                      urlMatch[1];
+                  }
+                }
+
+                /*
+                 * Only real numbered episodes.
+                 */
+
+                if (!episodeNumber) {
+                  return;
+                }
+
+                const url =
+                  this.absoluteUrl(href);
+
+                if (
+                  !url ||
+                  seen.has(url)
+                ) {
+                  return;
+                }
+
+                seen.add(url);
+
+                fallbackEpisodes.push({
+                  id:
+                    this.getEpisodeId(url),
+
+                  episode:
+                    episodeNumber,
+
+                  title:
+                    text ||
+                    `Episode ${episodeNumber}`,
+
+                  url,
+
+                  image: null
+                });
+
+              } catch (error) {
+                console.error(
+                  'Fallback episode error:',
+                  error.message
+                );
               }
-
-              const episodeNumber =
-                this.getEpisodeNumber(text);
-
-              if (!episodeNumber) {
-                return;
-              }
-
-              const url =
-                this.absoluteUrl(href);
-
-              if (!url || seen.has(url)) {
-                return;
-              }
-
-              seen.add(url);
-
-              fallbackEpisodes.push({
-                id:
-                  this.getEpisodeId(url),
-                episode:
-                  episodeNumber,
-                title:
-                  text ||
-                  `Episode ${episodeNumber}`,
-                url,
-                image: null
-              });
             }
           );
 
-          episodes = fallbackEpisodes;
+          episodes =
+            fallbackEpisodes;
         }
+
+        /*
+         * Sort episodes numerically.
+         */
 
         episodes.sort(
           (a, b) =>
             parseFloat(a.episode) -
             parseFloat(b.episode)
+        );
+
+        console.log(
+          'TOTAL REAL EPISODES:',
+          episodes.length
         );
 
         if (episodes.length > 0) {
