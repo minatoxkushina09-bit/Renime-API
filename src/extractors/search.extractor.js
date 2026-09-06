@@ -1,7 +1,7 @@
 const { SiteExtractor } = require('./site.extractor');
 
 class SearchExtractor extends SiteExtractor {
-  constructor(provider) {
+  constructor(provider = 'animesky') {
     super(provider);
   }
 
@@ -9,19 +9,32 @@ class SearchExtractor extends SiteExtractor {
    * Main search method
    */
   async search(query) {
-    const encodedQuery = encodeURIComponent(query);
-
-    if (this.base.providerId === 'animelok') {
-      return this.searchAnimeLok(query, encodedQuery);
+    if (!query || !String(query).trim()) {
+      return {
+        success: false,
+        query: '',
+        provider: this.base.providerId,
+        results: [],
+        total: 0,
+        error: 'Search query is required'
+      };
     }
 
-    return this.searchAnimeSky(query, encodedQuery);
+    const cleanQuery = String(query).trim();
+
+    if (this.base.providerId === 'animelok') {
+      return this.searchAnimeLok(cleanQuery);
+    }
+
+    return this.searchAnimeSky(cleanQuery);
   }
 
   /**
    * AnimeLok search
    */
-  async searchAnimeLok(query, encodedQuery) {
+  async searchAnimeLok(query) {
+    const encodedQuery = encodeURIComponent(query);
+
     const paths = [
       `/search?keyword=${encodedQuery}`,
       `/search?q=${encodedQuery}`
@@ -31,29 +44,9 @@ class SearchExtractor extends SiteExtractor {
 
     for (const path of paths) {
       try {
-        const { $, html } = await this.page(path);
+        const { $ } = await this.page(path);
 
-        console.log('================================');
-        console.log('ANIMELOK SEARCH');
-        console.log('URL:', path);
-        console.log(
-          'FULL URL:',
-          `${this.base.baseUrl}${path}`
-        );
-        console.log('HTML LENGTH:', html.length);
-        console.log('QUERY:', query);
-
-        const results =
-          this.extractAnimeLokResults($);
-
-        console.log(
-          'EXTRACTED RESULTS:',
-          results.length
-        );
-
-        console.log('RESULTS:', results);
-
-        console.log('================================');
+        const results = this.extractAnimeLokResults($);
 
         if (results.length > 0) {
           return {
@@ -64,7 +57,6 @@ class SearchExtractor extends SiteExtractor {
             total: results.length
           };
         }
-
       } catch (error) {
         lastError = error;
 
@@ -77,23 +69,18 @@ class SearchExtractor extends SiteExtractor {
           'STATUS:',
           error.response?.status || null
         );
-
-        console.error(
-          'ERROR URL:',
-          error.config?.url || null
-        );
       }
     }
 
     return {
-      success: true,
+      success: false,
       query,
       provider: 'animelok',
       results: [],
       total: 0,
       error: lastError
         ? lastError.message
-        : null
+        : 'No results found'
     };
   }
 
@@ -104,143 +91,24 @@ class SearchExtractor extends SiteExtractor {
     const results = [];
     const seen = new Set();
 
-    console.log(
-      '================================'
-    );
-
-    console.log(
-      'ANIMELOK EXTRACTION START'
-    );
-
-    /*
-     * AnimeLok currently uses links such as:
-     *
-     * /anime/727986f217
-     * /anime/d621346892
-     * /anime/8385dfc102cb
-     *
-     * Instead of depending on unstable CSS classes,
-     * directly search for anime URLs.
-     */
-
-    const animeLinks = $('a[href*="/anime/"]');
-
-    console.log(
-      'TOTAL ANIME LINK ELEMENTS:',
-      animeLinks.length
-    );
-
-    animeLinks.each((index, element) => {
-      try {
+    $('a[href*="/anime/"]').each(
+      (_, element) => {
         const anchor = $(element);
 
-        const href = anchor.attr('href');
+        const href =
+          anchor.attr('href') || '';
 
-        if (!href) {
-          return;
-        }
-
-        /*
-         * Ignore invalid or unwanted links
-         */
         if (
+          !href ||
           href === '/' ||
           href.startsWith('#') ||
-          href.startsWith('javascript:') ||
-          href.startsWith('mailto:')
+          href.startsWith('javascript:')
         ) {
           return;
         }
-
-        /*
-         * Make sure this is actually an anime page.
-         *
-         * Supports:
-         *
-         * /anime/abc123
-         * https://animelok.live/anime/abc123
-         */
-
-        const absoluteUrl =
-          this.absoluteUrl(href);
-
-        if (!absoluteUrl) {
-          return;
-        }
-
-        /*
-         * Prevent duplicates
-         */
-        if (seen.has(absoluteUrl)) {
-          return;
-        }
-
-        /*
-         * Get the image.
-         *
-         * AnimeLok stores the anime title inside
-         * the image alt attribute.
-         */
 
         const imageElement =
           anchor.find('img').first();
-
-        /*
-         * Skip links that are not actual anime cards.
-         *
-         * Real anime result links contain an image.
-         */
-
-        if (!imageElement.length) {
-          return;
-        }
-
-        /*
-         * Extract title.
-         *
-         * Priority:
-         *
-         * 1. img alt
-         * 2. anchor title
-         * 3. aria-label
-         * 4. text
-         */
-
-        const title =
-          imageElement.attr('alt') ||
-          anchor.attr('title') ||
-          anchor.attr('aria-label') ||
-          anchor
-            .find(
-              'h1, h2, h3, h4, h5, h6'
-            )
-            .first()
-            .text()
-            .trim() ||
-          anchor.text().trim();
-
-        /*
-         * Skip if title is missing
-         */
-
-        if (
-          !title ||
-          title.length < 2
-        ) {
-          console.log(
-            'SKIPPED LINK - NO TITLE:',
-            href
-          );
-
-          return;
-        }
-
-        /*
-         * Extract image.
-         *
-         * AnimeLok appears to use data-nimg
-         * with normal src/image URLs.
-         */
 
         const image =
           imageElement.attr('data-src') ||
@@ -249,49 +117,41 @@ class SearchExtractor extends SiteExtractor {
           imageElement.attr('src') ||
           null;
 
-        /*
-         * Create clean ID
-         *
-         * Example:
-         *
-         * /anime/727986f217
-         *
-         * becomes:
-         *
-         * 727986f217
-         */
+        const title =
+          imageElement.attr('alt') ||
+          anchor.attr('title') ||
+          anchor.attr('aria-label') ||
+          anchor
+            .find('h1, h2, h3, h4, h5, h6')
+            .first()
+            .text()
+            .trim() ||
+          anchor.text().trim();
+
+        if (!title || title.length < 2) {
+          return;
+        }
+
+        const absoluteUrl =
+          this.absoluteUrl(href);
+
+        if (!absoluteUrl || seen.has(absoluteUrl)) {
+          return;
+        }
 
         const id =
           href
-            .replace(
-              /^https?:\/\/[^/]+/i,
-              ''
-            )
-            .replace(
-              /^\/anime\//i,
-              ''
-            )
-            .replace(
-              /^\/+|\/+$/g,
-              ''
-            );
-
-        /*
-         * Final validation
-         */
+            .replace(/^https?:\/\/[^/]+/i, '')
+            .replace(/^\/anime\//i, '')
+            .replace(/^\/+|\/+$/g, '');
 
         if (!id) {
           return;
         }
 
-        /*
-         * Mark as seen only after
-         * confirming it is a valid anime
-         */
-
         seen.add(absoluteUrl);
 
-        const result = {
+        results.push({
           id,
           title: title.trim(),
           url: absoluteUrl,
@@ -300,34 +160,8 @@ class SearchExtractor extends SiteExtractor {
             : null,
           type: null,
           year: null
-        };
-
-        results.push(result);
-
-        console.log(
-          'ANIME FOUND:',
-          result
-        );
-
-      } catch (error) {
-        console.error(
-          'ERROR EXTRACTING ANIME LINK:',
-          error.message
-        );
+        });
       }
-    });
-
-    console.log(
-      'TOTAL EXTRACTED:',
-      results.length
-    );
-
-    console.log(
-      'ANIMELOK EXTRACTION END'
-    );
-
-    console.log(
-      '================================'
     );
 
     return results;
@@ -336,7 +170,10 @@ class SearchExtractor extends SiteExtractor {
   /**
    * AnimeSky search
    */
-  async searchAnimeSky(query, encodedQuery) {
+  async searchAnimeSky(query) {
+    const encodedQuery =
+      encodeURIComponent(query);
+
     const paths = [
       `/search?query=${encodedQuery}`,
       `/search?q=${encodedQuery}`
@@ -349,6 +186,8 @@ class SearchExtractor extends SiteExtractor {
         const { $ } =
           await this.page(path);
 
+        let results = [];
+
         const selectors = [
           '.flw-item',
           '.film_list-wrap .flw-item',
@@ -357,8 +196,6 @@ class SearchExtractor extends SiteExtractor {
           '.search-item'
         ];
 
-        let results = [];
-
         for (const selector of selectors) {
           results =
             this.list($, selector);
@@ -366,6 +203,14 @@ class SearchExtractor extends SiteExtractor {
           if (results.length > 0) {
             break;
           }
+        }
+
+        /*
+         * Fallback: look directly for anime links.
+         */
+        if (results.length === 0) {
+          results =
+            this.extractGenericAnimeLinks($);
         }
 
         if (results.length > 0) {
@@ -377,7 +222,6 @@ class SearchExtractor extends SiteExtractor {
             total: results.length
           };
         }
-
       } catch (error) {
         lastError = error;
 
@@ -394,19 +238,98 @@ class SearchExtractor extends SiteExtractor {
     }
 
     return {
-      success: true,
+      success: false,
       query,
       provider: 'animesky',
       results: [],
       total: 0,
       error: lastError
         ? lastError.message
-        : null
+        : 'No results found'
     };
   }
 
   /**
-   * Full page search compatibility method
+   * Generic fallback extractor
+   */
+  extractGenericAnimeLinks($) {
+    const results = [];
+    const seen = new Set();
+
+    $('a').each((index, element) => {
+      const anchor = $(element);
+
+      const href =
+        anchor.attr('href') || '';
+
+      if (!href) {
+        return;
+      }
+
+      const text =
+        anchor
+          .text()
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const imageElement =
+        anchor.find('img').first();
+
+      const title =
+        imageElement.attr('alt') ||
+        anchor.attr('title') ||
+        text;
+
+      if (!title || title.length < 2) {
+        return;
+      }
+
+      const image =
+        imageElement.attr('data-src') ||
+        imageElement.attr('data-lazy-src') ||
+        imageElement.attr('src') ||
+        null;
+
+      const url =
+        this.absoluteUrl(href);
+
+      if (!url || seen.has(url)) {
+        return;
+      }
+
+      /*
+       * Only keep links that look like anime pages.
+       */
+      if (
+        !/anime|series|movie/i.test(href)
+      ) {
+        return;
+      }
+
+      seen.add(url);
+
+      const id =
+        href
+          .replace(/^https?:\/\/[^/]+/i, '')
+          .replace(/^\/+|\/+$/g, '');
+
+      results.push({
+        id: id || String(index),
+        title: title.trim(),
+        url,
+        image: image
+          ? this.absoluteUrl(image)
+          : null,
+        type: null,
+        year: null
+      });
+    });
+
+    return results;
+  }
+
+  /**
+   * Compatibility method
    */
   async searchFullPage(query) {
     return this.search(query);
