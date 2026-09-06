@@ -33,45 +33,42 @@ class SiteExtractor {
     this.client = axios.create({
       baseURL: this.base.baseUrl,
       timeout: 30000,
-
       maxRedirects: 5,
+      validateStatus: () => true,
 
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-
-        'Accept':
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-
-        'Accept-Language':
-          'en-US,en;q=0.9',
-
-        'Cache-Control':
-          'no-cache',
-
-        'Pragma':
-          'no-cache',
-
-        'Upgrade-Insecure-Requests':
-          '1',
-
-        'Sec-Fetch-Dest':
-          'document',
-
-        'Sec-Fetch-Mode':
-          'navigate',
-
-        'Sec-Fetch-Site':
-          'none',
-
-        'Sec-Fetch-User':
-          '?1'
-      },
-
-      validateStatus: (status) =>
-        status >= 200 &&
-        status < 400
+      headers: this.getHeaders()
     });
+  }
+
+  /**
+   * Get request headers.
+   */
+  getHeaders() {
+    return {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+        'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+        'Chrome/131.0.0.0 Safari/537.36',
+
+      'Accept':
+        'text/html,application/xhtml+xml,application/xml;' +
+        'q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+
+      'Accept-Language':
+        'en-US,en;q=0.9',
+
+      'Accept-Encoding':
+        'gzip, deflate, br',
+
+      'Referer':
+        `${this.base.baseUrl}/`,
+
+      'Cache-Control':
+        'no-cache',
+
+      'Pragma':
+        'no-cache'
+    };
   }
 
   /**
@@ -79,8 +76,33 @@ class SiteExtractor {
    */
   delay(ms) {
     return new Promise(
-      (resolve) => setTimeout(resolve, ms)
+      resolve => setTimeout(resolve, ms)
     );
+  }
+
+  /**
+   * Build a valid path.
+   */
+  normalizePath(path = '/') {
+    if (!path) {
+      return '/';
+    }
+
+    const value = String(path).trim();
+
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const url = new URL(value);
+
+        return `${url.pathname}${url.search}`;
+      } catch (error) {
+        return '/';
+      }
+    }
+
+    return value.startsWith('/')
+      ? value
+      : `/${value}`;
   }
 
   /**
@@ -88,55 +110,25 @@ class SiteExtractor {
    */
   async page(path = '/') {
     const cleanPath =
-      String(path).startsWith('/')
-        ? path
-        : `/${path}`;
+      this.normalizePath(path);
 
-    const requestHeaders = {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    let lastError = null;
 
-      'Accept':
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-
-      'Accept-Language':
-        'en-US,en;q=0.9',
-
-      'Referer':
-        `${this.base.baseUrl}/`,
-
-      'Origin':
-        this.base.baseUrl,
-
-      'Cache-Control':
-        'no-cache',
-
-      'Pragma':
-        'no-cache',
-
-      'Upgrade-Insecure-Requests':
-        '1',
-
-      'Sec-Fetch-Dest':
-        'document',
-
-      'Sec-Fetch-Mode':
-        'navigate',
-
-      'Sec-Fetch-Site':
-        'same-origin',
-
-      'Sec-Fetch-User':
-        '?1'
-    };
-
-    let lastError;
-
-    // Retry the request a few times.
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (
+      let attempt = 0;
+      attempt < 3;
+      attempt++
+    ) {
       try {
+        const headers =
+          this.getHeaders();
+
         console.log(
-          `FETCHING PAGE (${attempt + 1}/3):`,
+          `FETCHING ${this.base.providerId} ` +
+          `(${attempt + 1}/3):`
+        );
+
+        console.log(
           `${this.base.baseUrl}${cleanPath}`
         );
 
@@ -144,37 +136,82 @@ class SiteExtractor {
           await this.client.get(
             cleanPath,
             {
-              headers: requestHeaders
+              headers,
+
+              maxRedirects: 5,
+
+              validateStatus: () => true
             }
           );
-
-        const html =
-          String(response.data || '');
 
         console.log(
           'PAGE STATUS:',
           response.status
         );
 
+        /*
+         * Explicitly handle blocked requests.
+         */
+        if (
+          response.status === 403 ||
+          response.status === 401 ||
+          response.status === 429
+        ) {
+          const error =
+            new Error(
+              `Request blocked with status ${response.status}`
+            );
+
+          error.response =
+            response;
+
+          throw error;
+        }
+
+        if (
+          response.status < 200 ||
+          response.status >= 400
+        ) {
+          const error =
+            new Error(
+              `Request failed with status ${response.status}`
+            );
+
+          error.response =
+            response;
+
+          throw error;
+        }
+
+        const html =
+          String(
+            response.data || ''
+          );
+
         console.log(
           'PAGE LENGTH:',
           html.length
         );
 
-        if (!html || html.length < 50) {
+        if (
+          !html ||
+          html.length < 50
+        ) {
           throw new Error(
             'Received empty HTML response'
           );
         }
+
+        const finalUrl =
+          response.request?.res?.responseUrl ||
+          `${this.base.baseUrl}${cleanPath}`;
 
         return {
           $: cheerio.load(html),
 
           html,
 
-          url:
-            response.request?.res?.responseUrl ||
-            `${this.base.baseUrl}${cleanPath}`,
+          url: finalUrl,
 
           response
         };
@@ -184,18 +221,21 @@ class SiteExtractor {
         console.error(
           `PAGE REQUEST FAILED (${attempt + 1}/3):`,
           error.response?.status ||
-            error.message
+          error.message
         );
 
         if (attempt < 2) {
           await this.delay(
-            1000 * (attempt + 1)
+            1500 * (attempt + 1)
           );
         }
       }
     }
 
-    throw lastError;
+    throw lastError ||
+      new Error(
+        `Failed to fetch ${cleanPath}`
+      );
   }
 
   /**
@@ -214,9 +254,11 @@ class SiteExtractor {
     }
 
     if (
-      /^https?:\/\//i.test(value)
+      value.startsWith('#') ||
+      value.startsWith('javascript:') ||
+      value.startsWith('mailto:')
     ) {
-      return value;
+      return null;
     }
 
     try {
@@ -230,6 +272,52 @@ class SiteExtractor {
   }
 
   /**
+   * Extract clean ID from URL.
+   */
+  getIdFromUrl(url, fallback = '') {
+    if (!url) {
+      return fallback;
+    }
+
+    try {
+      const parsed =
+        new URL(
+          this.absoluteUrl(url)
+        );
+
+      const parts =
+        parsed.pathname
+          .split('/')
+          .filter(Boolean);
+
+      /*
+       * For:
+       * /anime/123
+       * /series/naruto
+       */
+      if (parts.length >= 2) {
+        return parts[parts.length - 1];
+      }
+
+      return (
+        parts[0] ||
+        fallback
+      );
+    } catch (error) {
+      return String(url)
+        .replace(
+          /^https?:\/\/[^/]+/i,
+          ''
+        )
+        .replace(
+          /^\/+|\/+$/g,
+          ''
+        ) ||
+        fallback;
+    }
+  }
+
+  /**
    * Extract anime items from a Cheerio selection.
    */
   list($, selector) {
@@ -239,56 +327,82 @@ class SiteExtractor {
     $(selector).each(
       (index, element) => {
         try {
-          const item = $(element);
+          const item =
+            $(element);
 
-          const anchor = item.is('a')
-            ? item
-            : item.find('a').first();
+          const anchor =
+            item.is('a')
+              ? item
+              : item.find('a').first();
 
           const href =
             anchor.attr('href') || '';
+
+          const absoluteHref =
+            this.absoluteUrl(href);
+
+          if (!absoluteHref) {
+            return;
+          }
+
+          const imageElement =
+            item.find('img').first();
 
           const title =
             item
               .find('.film-name')
               .first()
               .text()
+              .replace(/\s+/g, ' ')
               .trim() ||
 
             item
               .find('.anime-name')
               .first()
               .text()
+              .replace(/\s+/g, ' ')
               .trim() ||
 
             item
               .find('.name')
               .first()
               .text()
+              .replace(/\s+/g, ' ')
               .trim() ||
 
             item
               .find('.title')
               .first()
               .text()
+              .replace(/\s+/g, ' ')
               .trim() ||
 
             item
-              .find('h1, h2, h3, h4')
+              .find(
+                'h1, h2, h3, h4, h5, h6'
+              )
               .first()
               .text()
+              .replace(/\s+/g, ' ')
               .trim() ||
 
-            anchor.attr('title') ||
+            imageElement
+              .attr('alt') ||
 
-            anchor.text().trim();
+            anchor
+              .attr('title') ||
 
-          if (!title) {
+            anchor
+              .text()
+              .replace(/\s+/g, ' ')
+              .trim();
+
+          if (
+            !title ||
+            title.length < 2
+          ) {
             return;
           }
-
-          const imageElement =
-            item.find('img').first();
 
           const image =
             imageElement.attr('data-src') ||
@@ -297,15 +411,13 @@ class SiteExtractor {
             imageElement.attr('src') ||
             null;
 
-          const absoluteHref =
-            this.absoluteUrl(href);
-
           const absoluteImage =
-            this.absoluteUrl(image);
+            image
+              ? this.absoluteUrl(image)
+              : null;
 
           const key =
-            absoluteHref ||
-            `${title}-${index}`;
+            absoluteHref;
 
           if (seen.has(key)) {
             return;
@@ -314,35 +426,33 @@ class SiteExtractor {
           seen.add(key);
 
           results.push({
-            id: href
-              ? href
-                  .replace(
-                    /^https?:\/\/[^/]+/i,
-                    ''
-                  )
-                  .replace(
-                    /^\/+|\/+$/g,
-                    ''
-                  )
-              : String(index),
+            id:
+              this.getIdFromUrl(
+                absoluteHref,
+                String(index)
+              ),
 
             title,
 
-            url: absoluteHref,
+            url:
+              absoluteHref,
 
-            image: absoluteImage,
+            image:
+              absoluteImage,
 
             type:
               item
                 .find('.type')
                 .first()
                 .text()
+                .replace(/\s+/g, ' ')
                 .trim() ||
 
               item
                 .find('.fdi-item')
                 .first()
                 .text()
+                .replace(/\s+/g, ' ')
                 .trim() ||
 
               null,
@@ -352,6 +462,7 @@ class SiteExtractor {
                 .find('.year')
                 .first()
                 .text()
+                .replace(/\s+/g, ' ')
                 .trim() ||
 
               null
