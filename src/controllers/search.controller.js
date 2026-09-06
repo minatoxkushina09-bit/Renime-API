@@ -13,7 +13,6 @@ class SearchController extends BaseController {
   async search(req, res, next) {
     await this.execute(req, res, next, async () => {
       try {
-        // Support all query parameter formats
         const {
           suggestion,
           q,
@@ -21,33 +20,30 @@ class SearchController extends BaseController {
           provider
         } = req.query;
 
-        // Check if at least one search parameter exists
+        // Validate query
         if (!suggestion && !q && !queryParam) {
           throw new BadRequestError(
             'Either "suggestion", "q", or "query" parameter is required'
           );
         }
 
-        // Get the search query
         const query = String(
           q || queryParam || suggestion || ''
         ).trim();
 
-        // Prevent empty queries
         if (!query) {
           throw new BadRequestError(
             'Search query cannot be empty'
           );
         }
 
-        // Default provider
+        // Requested provider
         const requestedProvider = String(
           provider || 'animesky'
         )
           .toLowerCase()
           .trim();
 
-        // Allowed providers
         const allowedProviders = [
           'animesky',
           'animelok'
@@ -60,48 +56,80 @@ class SearchController extends BaseController {
           );
         }
 
-        // Perform search
+        /**
+         * Perform search with selected provider.
+         */
         const performSearch = async (providerName) => {
           const searchExtractor =
             new SearchExtractor(providerName);
 
-          return await searchExtractor.search(query);
+          return searchExtractor.search(query);
         };
 
-        let results;
+        let results =
+          await performSearch(requestedProvider);
 
-        try {
-          results = await performSearch(
-            requestedProvider
+        /**
+         * IMPORTANT:
+         *
+         * Your extractor catches errors internally
+         * and returns:
+         *
+         * {
+         *   success: false,
+         *   error: "Request blocked with status 403"
+         * }
+         *
+         * Therefore we must check results.success,
+         * not only catch thrown errors.
+         */
+
+        if (
+          requestedProvider === 'animesky' &&
+          (
+            !results ||
+            results.success === false ||
+            !Array.isArray(results.results) ||
+            results.results.length === 0
+          )
+        ) {
+          logger.warn(
+            'AnimeSky search failed, trying AnimeLok fallback',
+            {
+              query,
+              error: results?.error || null
+            }
           );
-        } catch (error) {
-          const status =
-            error.response?.status;
 
-          // If AnimeSky is blocked, try Animelok
+          const fallbackResults =
+            await performSearch('animelok');
+
+          // Only replace results if AnimeLok succeeds
           if (
-            status === 403 &&
-            requestedProvider === 'animesky'
+            fallbackResults &&
+            fallbackResults.success === true &&
+            Array.isArray(fallbackResults.results) &&
+            fallbackResults.results.length > 0
           ) {
-            logger.warn(
-              'AnimeSky search blocked, trying Animelok fallback',
-              {
-                query,
-                status
-              }
-            );
+            results = {
+              ...fallbackResults,
 
-            results = await performSearch(
-              'animelok'
-            );
+              fallback: true,
 
-            results.fallback = true;
-            results.originalProvider = 'animesky';
-          } else {
-            throw error;
+              originalProvider:
+                'animesky',
+
+              requestedProvider:
+                'animesky'
+            };
           }
         }
 
+        /**
+         * Return the result.
+         *
+         * This preserves direct AnimeLok requests.
+         */
         return res
           .status(200)
           .json(results);
@@ -135,4 +163,6 @@ class SearchController extends BaseController {
   }
 }
 
-module.exports = { SearchController };
+module.exports = {
+  SearchController
+};
