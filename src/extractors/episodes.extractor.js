@@ -38,7 +38,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract ID from URL.
+   * Extract episode ID from URL.
    */
   getEpisodeId(url = '') {
     try {
@@ -61,7 +61,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Check invalid URLs.
+   * Reject invalid URLs.
    */
   isInvalidUrl(url = '') {
     const value = String(url)
@@ -113,7 +113,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episodes from HTML elements.
+   * Extract episodes from HTML.
    */
   extractEpisodes($) {
     const episodes = [];
@@ -122,12 +122,16 @@ class EpisodesExtractor extends SiteExtractor {
     const selectors = [
       '[data-episode]',
       '[data-episode-number]',
+      '[data-number]',
       '.episode-item',
+      '.episode',
       '.episodes li',
       '.episode-list li',
       '.episodelist li',
       '.eps-item',
+      '.eps li',
       '.list-episode li',
+      '.server-item',
       '[class*="episode"]'
     ];
 
@@ -140,9 +144,10 @@ class EpisodesExtractor extends SiteExtractor {
             ? item
             : item.find('a').first();
 
-          const href =
+          let href =
             anchor.attr('href') ||
             item.attr('data-url') ||
+            item.attr('data-href') ||
             '';
 
           if (this.isInvalidUrl(href)) {
@@ -152,8 +157,10 @@ class EpisodesExtractor extends SiteExtractor {
           const episodeText =
             item.attr('data-episode') ||
             item.attr('data-episode-number') ||
+            item.attr('data-number') ||
             item.find('.episode-number').first().text() ||
             item.find('.episode-title').first().text() ||
+            item.find('.title').first().text() ||
             anchor.text() ||
             item.text();
 
@@ -174,15 +181,28 @@ class EpisodesExtractor extends SiteExtractor {
             return;
           }
 
+          const imageElement = item.find('img').first();
+
+          const image =
+            imageElement.attr('data-src') ||
+            imageElement.attr('data-lazy-src') ||
+            imageElement.attr('data-original') ||
+            imageElement.attr('src') ||
+            null;
+
           this.addEpisode(
             episodes,
             seen,
             {
               id: this.getEpisodeId(url),
               episode: episodeNumber,
-              title: cleanText,
+              title:
+                cleanText ||
+                `Episode ${episodeNumber}`,
               url,
-              image: null
+              image: image
+                ? this.absoluteUrl(image)
+                : null
             }
           );
         } catch (error) {
@@ -202,7 +222,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract numbered links.
+   * Extract episodes from numbered links.
    */
   extractFallbackEpisodes($) {
     const episodes = [];
@@ -231,7 +251,8 @@ class EpisodesExtractor extends SiteExtractor {
           return;
         }
 
-        const url = this.absoluteUrl(href);
+        const url =
+          this.absoluteUrl(href);
 
         if (!url) {
           return;
@@ -241,10 +262,18 @@ class EpisodesExtractor extends SiteExtractor {
           episodes,
           seen,
           {
-            id: this.getEpisodeId(url),
-            episode: episodeNumber,
-            title: text,
+            id:
+              this.getEpisodeId(url),
+
+            episode:
+              episodeNumber,
+
+            title:
+              text ||
+              `Episode ${episodeNumber}`,
+
             url,
+
             image: null
           }
         );
@@ -260,7 +289,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episode objects from scripts.
+   * Extract episode data from scripts.
    */
   extractEpisodesFromScripts($) {
     const episodes = [];
@@ -276,9 +305,13 @@ class EpisodesExtractor extends SiteExtractor {
         }
 
         const patterns = [
-          /["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1000}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi,
+          /["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1500}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi,
 
-          /["'](?:url|href|link)["']\s*:\s*["']([^"']+)["'][\s\S]{0,1000}?["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?/gi
+          /["'](?:url|href|link)["']\s*:\s*["']([^"']+)["'][\s\S]{0,1500}?["']episode["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?/gi,
+
+          /["']episodeNumber["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1500}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi,
+
+          /["']number["']\s*:\s*["']?(\d+(?:\.\d+)?)["']?[\s\S]{0,1500}?["'](?:url|href|link)["']\s*:\s*["']([^"']+)["']/gi
         ];
 
         patterns.forEach((pattern, index) => {
@@ -290,12 +323,12 @@ class EpisodesExtractor extends SiteExtractor {
             let episodeNumber;
             let rawUrl;
 
-            if (index === 0) {
-              episodeNumber = match[1];
-              rawUrl = match[2];
-            } else {
+            if (index === 1) {
               rawUrl = match[1];
               episodeNumber = match[2];
+            } else {
+              episodeNumber = match[1];
+              rawUrl = match[2];
             }
 
             if (
@@ -317,10 +350,17 @@ class EpisodesExtractor extends SiteExtractor {
               episodes,
               seen,
               {
-                id: this.getEpisodeId(url),
-                episode: episodeNumber,
-                title: `Episode ${episodeNumber}`,
+                id:
+                  this.getEpisodeId(url),
+
+                episode:
+                  episodeNumber,
+
+                title:
+                  `Episode ${episodeNumber}`,
+
                 url,
+
                 image: null
               }
             );
@@ -340,9 +380,8 @@ class EpisodesExtractor extends SiteExtractor {
   /**
    * AnimeLok fallback.
    *
-   * The AnimeLok anime ID itself can be used
-   * to construct the watch URL when no episode
-   * list is exposed in the HTML.
+   * Used only when AnimeLok does not expose
+   * a readable episode list.
    */
   createAnimeLokFallback(id) {
     return [
@@ -350,7 +389,8 @@ class EpisodesExtractor extends SiteExtractor {
         id: String(id),
         episode: '1',
         title: 'Episode 1',
-        url: `https://animelok.live/watch/${encodeURIComponent(id)}`,
+        url:
+          `https://animelok.live/watch/${encodeURIComponent(id)}`,
         image: null
       }
     ];
@@ -359,7 +399,10 @@ class EpisodesExtractor extends SiteExtractor {
   /**
    * Extract episodes from anime page.
    */
-  async extractFromAnimePage(id, season = 1) {
+  async extractFromAnimePage(
+    id,
+    season = 1
+  ) {
     const encodedId =
       encodeURIComponent(id);
 
@@ -387,7 +430,10 @@ class EpisodesExtractor extends SiteExtractor {
         const { $, html } =
           await this.page(path);
 
-        if (!html || html.length < 50) {
+        if (
+          !html ||
+          html.length < 50
+        ) {
           continue;
         }
 
@@ -442,14 +488,20 @@ class EpisodesExtractor extends SiteExtractor {
       }
     }
 
-    /*
+    /**
      * Final AnimeLok fallback.
      *
-     * This prevents the API from failing
-     * when AnimeLok returns an anime page
-     * without an extractable episode list.
+     * This ensures AnimeLok requests
+     * still return a valid playable URL
+     * instead of failing completely.
      */
-    if (this.base.providerId === 'animelok') {
+    if (
+      this.base.providerId === 'animelok'
+    ) {
+      console.log(
+        'USING ANIMELOK FINAL FALLBACK'
+      );
+
       return {
         postId: String(id),
         season,
@@ -467,9 +519,12 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Compatibility method.
+   * Compatibility method used by controller.
    */
-  async extractFromAjax(id, season = 1) {
+  async extractFromAjax(
+    id,
+    season = 1
+  ) {
     return this.extractFromAnimePage(
       id,
       season
