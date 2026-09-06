@@ -11,9 +11,9 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episode number from text.
+   * Extract episode number from visible text.
    */
-  getEpisodeNumber(text = '', fallback = '') {
+  getEpisodeNumber(text = '') {
     const value = String(text)
       .replace(/\s+/g, ' ')
       .trim();
@@ -22,7 +22,7 @@ class EpisodesExtractor extends SiteExtractor {
       /episode\s*(\d+(?:\.\d+)?)/i,
       /\bep\.?\s*(\d+(?:\.\d+)?)/i,
       /s\d+\s*e(\d+(?:\.\d+)?)/i,
-      /(\d+)\s*x\s*(\d+(?:\.\d+)?)/i,
+      /\b(\d+)\s*x\s*(\d+(?:\.\d+)?)/i,
       /^\s*(\d+(?:\.\d+)?)\s*$/
     ];
 
@@ -32,13 +32,20 @@ class EpisodesExtractor extends SiteExtractor {
       if (match) {
         /*
          * For formats like 1x23,
-         * return episode 23.
+         * return 23 instead of 1.
          */
-        return match[2] || match[1];
+        if (
+          match.length > 2 &&
+          match[2]
+        ) {
+          return match[2];
+        }
+
+        return match[1];
       }
     }
 
-    return fallback;
+    return '';
   }
 
   /**
@@ -75,8 +82,8 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Check whether URL looks like
-   * an actual episode URL.
+   * Check if URL looks like
+   * a real episode URL.
    */
   isEpisodeUrl(url = '') {
     const value =
@@ -162,7 +169,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episodes from normal HTML elements.
+   * Extract episodes from normal HTML.
    */
   extractEpisodes($) {
     const episodes = [];
@@ -229,9 +236,7 @@ class EpisodesExtractor extends SiteExtractor {
                 .trim();
 
             const episodeNumber =
-              this.getEpisodeNumber(
-                text
-              );
+              this.getEpisodeNumber(text);
 
             if (!episodeNumber) {
               return;
@@ -325,9 +330,7 @@ class EpisodesExtractor extends SiteExtractor {
               .trim();
 
           const episodeNumber =
-            this.getEpisodeNumber(
-              text
-            );
+            this.getEpisodeNumber(text);
 
           if (!episodeNumber) {
             return;
@@ -340,19 +343,12 @@ class EpisodesExtractor extends SiteExtractor {
             return;
           }
 
-          /*
-           * Accept only links that look
-           * like episodes or have clearly
-           * numbered episode text.
-           */
           if (
             !this.isEpisodeUrl(href) &&
             !/^(\d+(?:\.\d+)?)$/i.test(
               text
             ) &&
-            !/episode|ep\.?/i.test(
-              text
-            )
+            !/episode|ep\.?/i.test(text)
           ) {
             return;
           }
@@ -393,8 +389,7 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Extract episode information from
-   * JSON or JavaScript inside scripts.
+   * Extract episodes from script/JSON data.
    */
   extractEpisodesFromScripts($) {
     const episodes = [];
@@ -461,9 +456,7 @@ class EpisodesExtractor extends SiteExtractor {
               }
 
               const absoluteUrl =
-                this.absoluteUrl(
-                  rawUrl
-                );
+                this.absoluteUrl(rawUrl);
 
               if (!absoluteUrl) {
                 continue;
@@ -515,9 +508,18 @@ class EpisodesExtractor extends SiteExtractor {
     const encodedId =
       encodeURIComponent(id);
 
+    /*
+     * Provider-specific paths.
+     *
+     * AnimeLok:
+     * Try the watch page first,
+     * then the anime details page.
+     */
     const paths =
       this.base.providerId === 'animelok'
         ? [
+            `/watch/${encodedId}`,
+            `/watch/${encodedId}/`,
             `/anime/${encodedId}`,
             `/anime/${encodedId}/`
           ]
@@ -561,6 +563,11 @@ class EpisodesExtractor extends SiteExtractor {
           continue;
         }
 
+        console.log(
+          'PAGE LENGTH:',
+          html.length
+        );
+
         let episodes =
           this.extractEpisodes($);
 
@@ -569,16 +576,11 @@ class EpisodesExtractor extends SiteExtractor {
           episodes.length
         );
 
-        /*
-         * Try fallback link extraction.
-         */
         if (
           episodes.length === 0
         ) {
           episodes =
-            this.extractFallbackEpisodes(
-              $
-            );
+            this.extractFallbackEpisodes($);
 
           console.log(
             'FALLBACK EXTRACTION TOTAL:',
@@ -586,17 +588,11 @@ class EpisodesExtractor extends SiteExtractor {
           );
         }
 
-        /*
-         * Try extracting episode data
-         * from scripts.
-         */
         if (
           episodes.length === 0
         ) {
           episodes =
-            this.extractEpisodesFromScripts(
-              $
-            );
+            this.extractEpisodesFromScripts($);
 
           console.log(
             'SCRIPT EXTRACTION TOTAL:',
@@ -611,7 +607,7 @@ class EpisodesExtractor extends SiteExtractor {
         );
 
         console.log(
-          'TOTAL EPISODES FOUND:',
+          'TOTAL REAL EPISODES:',
           episodes.length
         );
 
@@ -644,8 +640,8 @@ class EpisodesExtractor extends SiteExtractor {
   }
 
   /**
-   * Compatibility method used by
-   * EpisodesController.
+   * Compatibility method used
+   * by EpisodesController.
    */
   async extractFromAjax(
     id,
