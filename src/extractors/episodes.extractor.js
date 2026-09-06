@@ -12,66 +12,105 @@ class EpisodesExtractor extends BaseExtractor {
   }
 
   getSourceName() {
-    return this.base.providerName || this.base.providerId || 'Unknown';
+    return (
+      this.base.providerName ||
+      this.base.providerId ||
+      'Unknown'
+    );
   }
 
   extractEpisode($, item) {
-    const episodeNum = this.extractText(
-      $(item).find('.num-epi').first()
-    );
+    const episodeNum =
+      this.extractText(
+        $(item).find('.num-epi').first()
+      ) ||
+      this.extractText(
+        $(item).find('.episode-number').first()
+      );
 
-    const title = this.extractText(
-      $(item).find('.entry-title').first()
-    );
+    const title =
+      this.extractText(
+        $(item).find('.entry-title').first()
+      ) ||
+      this.extractText(
+        $(item).find('.title').first()
+      ) ||
+      this.extractText(
+        $(item).find('.name').first()
+      );
 
-    const image = this.extractAttribute(
-      $(item).find('img').first(),
-      'src'
-    );
+    const image =
+      this.extractAttribute(
+        $(item).find('img').first(),
+        'data-src'
+      ) ||
+      this.extractAttribute(
+        $(item).find('img').first(),
+        'data-lazy-src'
+      ) ||
+      this.extractAttribute(
+        $(item).find('img').first(),
+        'src'
+      );
 
-    const link = this.extractAttribute(
-      $(item).find('a.lnk-blk').first(),
-      'href'
-    );
+    const link =
+      this.extractAttribute(
+        $(item).find('a.lnk-blk').first(),
+        'href'
+      ) ||
+      this.extractAttribute(
+        $(item).find('a[href]').first(),
+        'href'
+      );
 
     let episodeId = '';
 
     if (link) {
-      const fullUrl = this.base.buildUrl(link);
+      try {
+        const fullUrl =
+          this.base.buildUrl(link);
 
-      const urlParts = fullUrl
-        .split('/')
-        .filter(Boolean);
+        const urlParts =
+          fullUrl
+            .split('/')
+            .filter(Boolean);
 
-      episodeId =
-        urlParts[urlParts.length - 1] || '';
+        episodeId =
+          urlParts[
+            urlParts.length - 1
+          ] || '';
+      } catch (error) {
+        episodeId = '';
+      }
     }
 
     let detectedSeason = '';
     let episode = '';
 
     if (episodeNum) {
-      let match = episodeNum.match(
-        /(\d+)[xX](\d+)/
-      );
+      let match =
+        episodeNum.match(
+          /(\d+)\s*[xX]\s*(\d+)/
+        );
 
       if (match) {
         detectedSeason = match[1];
         episode = match[2];
       } else {
-        match = episodeNum.match(
-          /[sS](\d+)[eE](\d+)/
-        );
+        match =
+          episodeNum.match(
+            /[sS]\s*(\d+)\s*[eE]\s*(\d+)/
+          );
 
         if (match) {
           detectedSeason = match[1];
           episode = match[2];
         } else {
           const epMatch =
-            episodeNum.match(/(\d+)/);
+            episodeNum.match(/\d+/);
 
           if (epMatch) {
-            episode = epMatch[1];
+            episode = epMatch[0];
           }
         }
       }
@@ -80,9 +119,10 @@ class EpisodesExtractor extends BaseExtractor {
     return {
       id: episodeId,
       season: detectedSeason,
-      episode: episode,
-      title: title,
-      image: this.normalizeImageUrl(image),
+      episode,
+      title,
+      image:
+        this.normalizeImageUrl(image),
       url: link
         ? this.base.buildUrl(link)
         : ''
@@ -93,35 +133,50 @@ class EpisodesExtractor extends BaseExtractor {
     const $ = this.loadCheerio(html);
 
     const episodes = [];
+    const seen = new Set();
 
     const selectors = [
-      'li',
-      '.episode',
+      '.episode-item',
       '.episodes li',
       '.episodelist li',
       '.aa-cnt li',
-      '.listing li'
+      '.listing li',
+      'li'
     ];
 
     for (const selector of selectors) {
-      $(selector).each((_, el) => {
-        const episode =
-          this.extractEpisode($, el);
+      $(selector).each((_, element) => {
+        try {
+          const episode =
+            this.extractEpisode(
+              $,
+              element
+            );
 
-        if (
-          episode.title ||
-          episode.episode ||
-          episode.id
-        ) {
-          const exists = episodes.some(
-            item =>
-              item.id === episode.id &&
-              item.id
-          );
-
-          if (!exists) {
-            episodes.push(episode);
+          if (
+            !episode.title &&
+            !episode.episode &&
+            !episode.id
+          ) {
+            return;
           }
+
+          const key =
+            episode.id ||
+            `${episode.season}-${episode.episode}-${episode.title}`;
+
+          if (seen.has(key)) {
+            return;
+          }
+
+          seen.add(key);
+          episodes.push(episode);
+
+        } catch (error) {
+          console.error(
+            'Episode extraction error:',
+            error.message
+          );
         }
       });
 
@@ -129,6 +184,11 @@ class EpisodesExtractor extends BaseExtractor {
         break;
       }
     }
+
+    console.log(
+      'TOTAL EPISODES:',
+      episodes.length
+    );
 
     return episodes;
   }
@@ -140,24 +200,41 @@ class EpisodesExtractor extends BaseExtractor {
     const { getRandomUserAgent } =
       require('../config/user-agents');
 
-    const possibleUrls = [
-      `${this.base.baseUrl}/anime/${encodeURIComponent(id)}`,
-      `${this.base.baseUrl}/anime/${encodeURIComponent(id)}/`,
-      `${this.base.baseUrl}/series/${encodeURIComponent(id)}/`,
-      `${this.base.baseUrl}/movies/${encodeURIComponent(id)}/`
-    ];
+    const encodedId =
+      encodeURIComponent(id);
 
-    let lastError;
+    const possiblePaths =
+      this.base.providerId === 'animelok'
+        ? [
+            `/anime/${encodedId}`,
+            `/anime/${encodedId}/`,
+            `/series/${encodedId}`,
+            `/series/${encodedId}/`
+          ]
+        : [
+            `/series/${encodedId}/`,
+            `/movies/${encodedId}/`
+          ];
 
-    for (const url of possibleUrls) {
+    let lastError = null;
+
+    for (const path of possiblePaths) {
+      const url =
+        this.base.buildUrl(path);
+
       try {
-        const response =
+        console.log(
+          'TRYING ANIME PAGE:',
+          url
+        );
+
+        const html =
           await httpClient.get(url, {
             headers: {
               'User-Agent':
                 getRandomUserAgent(),
 
-              'Accept':
+              Accept:
                 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 
               'Accept-Language':
@@ -165,12 +242,31 @@ class EpisodesExtractor extends BaseExtractor {
             }
           });
 
+        if (
+          !html ||
+          typeof html !== 'string'
+        ) {
+          continue;
+        }
+
+        console.log(
+          'PAGE LENGTH:',
+          html.length
+        );
+
         return {
-          html: response,
-          url: url
+          html,
+          url
         };
+
       } catch (error) {
         lastError = error;
+
+        console.error(
+          'PAGE REQUEST FAILED:',
+          url,
+          error.message
+        );
       }
     }
 
@@ -186,59 +282,183 @@ class EpisodesExtractor extends BaseExtractor {
     const page =
       await this.getAnimePage(id);
 
-    const $ =
-      this.loadCheerio(page.html);
+    const html = page.html;
 
+    const $ =
+      this.loadCheerio(html);
+
+    console.log(
+      'SEARCHING POST ID IN:',
+      page.url
+    );
+
+    // Method 1: body class
     const bodyClass =
       $('body').attr('class') || '';
 
-    let postIdMatch =
-      bodyClass.match(/postid-(\d+)/);
+    let match =
+      bodyClass.match(
+        /postid-(\d+)/i
+      );
 
-    if (postIdMatch) {
+    if (match) {
+      console.log(
+        'POST ID FOUND IN BODY:',
+        match[1]
+      );
+
       return {
-        postId: postIdMatch[1],
+        postId: match[1],
         url: page.url
       };
     }
 
+    // Method 2: article ID
     const articleId =
-      $('article[id*="post-"]').first()
+      $('article[id*="post-"]')
+        .first()
         .attr('id');
 
     if (articleId) {
-      postIdMatch =
-        articleId.match(/post-(\d+)/);
+      match =
+        articleId.match(
+          /post-(\d+)/i
+        );
 
-      if (postIdMatch) {
+      if (match) {
+        console.log(
+          'POST ID FOUND IN ARTICLE:',
+          match[1]
+        );
+
         return {
-          postId: postIdMatch[1],
+          postId: match[1],
           url: page.url
         };
       }
     }
 
+    // Method 3: data-post
     const dataPost =
-      $('[data-post]').first()
+      $('[data-post]')
+        .first()
         .attr('data-post');
 
-    if (dataPost) {
+    if (
+      dataPost &&
+      /^\d+$/.test(
+        String(dataPost)
+      )
+    ) {
+      console.log(
+        'POST ID FOUND IN DATA-POST:',
+        dataPost
+      );
+
       return {
-        postId: dataPost,
+        postId: String(dataPost),
         url: page.url
       };
     }
 
+    // Method 4: data-post-id
+    const dataPostId =
+      $('[data-post-id]')
+        .first()
+        .attr('data-post-id');
+
+    if (
+      dataPostId &&
+      /^\d+$/.test(
+        String(dataPostId)
+      )
+    ) {
+      console.log(
+        'POST ID FOUND IN DATA-POST-ID:',
+        dataPostId
+      );
+
+      return {
+        postId: String(dataPostId),
+        url: page.url
+      };
+    }
+
+    // Method 5: hidden input
     const hiddenPost =
-      $('input[name="post"]').first()
+      $('input[name="post"]')
+        .first()
         .val();
 
-    if (hiddenPost) {
+    if (
+      hiddenPost &&
+      /^\d+$/.test(
+        String(hiddenPost)
+      )
+    ) {
+      console.log(
+        'POST ID FOUND IN INPUT:',
+        hiddenPost
+      );
+
       return {
-        postId: hiddenPost,
+        postId: String(hiddenPost),
         url: page.url
       };
     }
+
+    // Method 6: Search raw HTML
+    match =
+      html.match(
+        /postid-(\d+)/i
+      );
+
+    if (match) {
+      return {
+        postId: match[1],
+        url: page.url
+      };
+    }
+
+    // Method 7: JavaScript post_id
+    match =
+      html.match(
+        /["']post_id["']\s*[:=]\s*["']?(\d+)/i
+      );
+
+    if (match) {
+      console.log(
+        'POST ID FOUND IN SCRIPT:',
+        match[1]
+      );
+
+      return {
+        postId: match[1],
+        url: page.url
+      };
+    }
+
+    // Method 8: Generic post value
+    match =
+      html.match(
+        /["']post["']\s*[:=]\s*["']?(\d+)/i
+      );
+
+    if (match) {
+      console.log(
+        'POST ID FOUND AS POST:',
+        match[1]
+      );
+
+      return {
+        postId: match[1],
+        url: page.url
+      };
+    }
+
+    console.error(
+      'POST ID NOT FOUND'
+    );
 
     throw new Error(
       `Could not find post ID for: ${id}`
@@ -252,55 +472,104 @@ class EpisodesExtractor extends BaseExtractor {
     const { getRandomUserAgent } =
       require('../config/user-agents');
 
+    console.log('====================');
+    console.log('EPISODES REQUEST');
+    console.log(
+      'PROVIDER:',
+      this.base.providerId
+    );
+    console.log('ANIME ID:', id);
+    console.log('SEASON:', season);
+
     const animeData =
       await this.getPostId(id);
 
     const postId =
       animeData.postId;
 
+    console.log(
+      'POST ID:',
+      postId
+    );
+
+    const params = [
+      `season=${encodeURIComponent(season)}`,
+      `post=${encodeURIComponent(postId)}`
+    ].join('&');
+
     const ajaxUrls = [
-      `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&season=${encodeURIComponent(season)}&post=${encodeURIComponent(postId)}`,
+      `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&${params}`,
 
       `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&season=${encodeURIComponent(season)}&post_id=${encodeURIComponent(postId)}`,
 
       `${this.base.baseUrl}/wp-admin/admin-ajax.php?action=action_select_season&season=${encodeURIComponent(season)}&id=${encodeURIComponent(postId)}`
     ];
 
-    let lastError;
+    let lastError = null;
 
     for (const ajaxUrl of ajaxUrls) {
       try {
+        console.log(
+          'TRYING AJAX:',
+          ajaxUrl
+        );
+
         const html =
-          await httpClient.get(ajaxUrl, {
-            headers: {
-              'User-Agent':
-                getRandomUserAgent(),
+          await httpClient.get(
+            ajaxUrl,
+            {
+              headers: {
+                'User-Agent':
+                  getRandomUserAgent(),
 
-              'Accept':
-                '*/*',
+                Accept: '*/*',
 
-              'Accept-Language':
-                'en-US,en;q=0.9',
+                'Accept-Language':
+                  'en-US,en;q=0.9',
 
-              'Referer':
-                animeData.url,
+                Referer:
+                  animeData.url,
 
-              'X-Requested-With':
-                'XMLHttpRequest'
+                'X-Requested-With':
+                  'XMLHttpRequest'
+              }
             }
-          });
+          );
+
+        if (
+          !html ||
+          typeof html !== 'string'
+        ) {
+          continue;
+        }
+
+        console.log(
+          'AJAX LENGTH:',
+          html.length
+        );
 
         const episodes =
           await this.extract(html);
 
         if (episodes.length > 0) {
+          console.log(
+            'EPISODES FOUND:',
+            episodes.length
+          );
+
           return {
             postId,
             episodes
           };
         }
+
       } catch (error) {
         lastError = error;
+
+        console.error(
+          'AJAX FAILED:',
+          error.message
+        );
       }
     }
 
